@@ -20,7 +20,7 @@ document.querySelectorAll('.char-count').forEach((counter) => {
 function collectData() {
   const data = {};
   ['name', 'age', 'height', 'dom', 'normal_attack', 'skill1', 'skill2',
-   'ultimate', 'personality', 'profession', 'lore'].forEach((f) => {
+   'ultimate', 'personality', 'profession', 'lore', 'role1', 'role2'].forEach((f) => {
     data[f] = form.elements[f].value.trim();
   });
   ['region', 'affiliation', 'element', 'weapon'].forEach((f) => {
@@ -43,6 +43,9 @@ document.querySelectorAll('.ai-btn').forEach((btn) => {
     const bar = progress.querySelector('.bar');
     const expected = Math.max(300, (TEXT_LIMITS[field] || 500) * 0.55);
 
+    // O que o usuário digitou no campo vira a base principal para a IA
+    const draft = textarea.value.trim();
+
     btn.disabled = true;
     btn.classList.add('loading');
     progress.classList.add('active');
@@ -53,7 +56,7 @@ document.querySelectorAll('.ai-btn').forEach((btn) => {
       const resp = await fetch('/api/ai_fill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field, data: collectData() }),
+        body: JSON.stringify({ field, draft, data: collectData() }),
       });
       if (!resp.ok) {
         const body = await resp.json().catch(() => null);
@@ -89,6 +92,95 @@ document.querySelectorAll('.ai-btn').forEach((btn) => {
   });
 });
 
+// ---------------------------------------------------------------- importação de planilha
+const importBtn = document.getElementById('import-sheet-btn');
+const sheetInput = document.createElement('input');
+sheetInput.type = 'file';
+sheetInput.accept = '.xlsx,.csv';
+sheetInput.style.display = 'none';
+document.body.appendChild(sheetInput);
+
+importBtn.addEventListener('click', () => sheetInput.click());
+sheetInput.addEventListener('change', async () => {
+  const file = sheetInput.files[0];
+  sheetInput.value = '';
+  if (!file) return;
+  importBtn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('sheet', file);
+    const res = await api('/api/import_sheet', { method: 'POST', body: fd });
+    const rows = res.rows || [];
+    if (rows.length === 1) applySheetRow(rows[0]);
+    else pickSheetRow(rows);
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    importBtn.disabled = false;
+  }
+});
+
+function pickSheetRow(rows) {
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16B9;</span> Importar da planilha</h3>
+    <p style="color:var(--ink-2);margin-bottom:14px">
+      A planilha tem <b>${rows.length}</b> personagens. Escolha qual usar para preencher o formulário:
+    </p>
+    <div class="sheet-pick">
+      ${rows.map((r, i) => `<button type="button" class="btn" data-row="${i}">${esc(r.name)}</button>`).join('')}
+    </div>`);
+  overlay.querySelectorAll('[data-row]').forEach((b) => {
+    b.onclick = () => { applySheetRow(rows[+b.dataset.row]); closeModal(overlay); };
+  });
+}
+
+function selectByText(select, text) {
+  const target = String(text).trim().toLowerCase();
+  const opt = [...select.options].find((o) => o.text.trim().toLowerCase() === target);
+  if (opt) { select.value = opt.value; return true; }
+  return false;
+}
+
+function applySheetRow(row) {
+  let filled = 0;
+  const skipped = [];
+
+  ['name', 'age', 'height', 'dom', 'normal_attack', 'skill1', 'skill2',
+   'ultimate', 'personality', 'profession', 'lore'].forEach((f) => {
+    if (row[f] === undefined) return;
+    const el = form.elements[f];
+    el.value = el.maxLength > 0 ? row[f].slice(0, el.maxLength) : row[f];
+    el.dispatchEvent(new Event('input'));
+    filled++;
+  });
+
+  // dropboxes: só preenche se o valor bater 100% com uma opção existente
+  [['region', 'region_id', 'Região'], ['affiliation', 'affiliation_id', 'Afiliação'],
+   ['element', 'element_id', 'Elemento'], ['weapon', 'weapon_id', 'Arma']].forEach(([f, sel, label]) => {
+    if (row[f] === undefined) return;
+    if (selectByText(form.elements[sel], row[f])) filled++;
+    else skipped.push(`${label} "${row[f]}"`);
+  });
+
+  ['role1', 'role2'].forEach((f, i) => {
+    if (row[f] === undefined) return;
+    if (selectByText(form.elements[f], row[f])) filled++;
+    else skipped.push(`Role ${i + 1} "${row[f]}"`);
+  });
+
+  if (row.rarity === '4' || row.rarity === '5') {
+    form.elements.rarity.value = row.rarity;
+    filled++;
+  } else if (row.rarity !== undefined) {
+    skipped.push(`Raridade "${row.rarity}"`);
+  }
+
+  toast(`Planilha importada: ${filled} campo${filled === 1 ? '' : 's'} preenchido${filled === 1 ? '' : 's'}.`, 'success');
+  if (skipped.length) {
+    toast(`Sem correspondência exata nas opções (não preenchidos): ${skipped.join(', ')}`, 'error');
+  }
+}
+
 // ---------------------------------------------------------------- submit
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -102,7 +194,7 @@ form.addEventListener('submit', async (e) => {
 
   const fd = new FormData();
   ['name', 'age', 'height', 'dom', 'normal_attack', 'skill1', 'skill2',
-   'ultimate', 'personality', 'profession', 'lore'].forEach((f) => fd.append(f, data[f]));
+   'ultimate', 'personality', 'profession', 'lore', 'role1', 'role2'].forEach((f) => fd.append(f, data[f]));
   ['region_id', 'affiliation_id', 'element_id', 'weapon_id'].forEach((f) => fd.append(f, data[f]));
   fd.append('rarity', data._rarity_raw);
   if (iiFull.file) fd.append('card_full', iiFull.file);

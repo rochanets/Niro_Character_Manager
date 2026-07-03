@@ -24,7 +24,8 @@
   --danger: #e66767;
   --ok: #4cc38a;
 
-  --star5: #c98500;
+  /* padrão de raridade: 5★ dourado, 4★ roxo — em todos os módulos */
+  --star5: #e0b45c;
   --star4: #9085e9;
 
   --radius: 16px;
@@ -270,7 +271,7 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 
 /* --------- grid de personagens --------- */
 .char-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(192px, 1fr));
   gap: 16px;
 }
 .char-card {
@@ -291,8 +292,10 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 }
 .char-card .cc-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .char-card .cc-stars { font-size: 11.5px; letter-spacing: 1px; flex-shrink: 0; }
-.stars-5 { color: var(--gold); text-shadow: 0 0 8px rgba(224, 180, 92, 0.5); }
+.stars-5 { color: var(--star5); text-shadow: 0 0 8px rgba(224, 180, 92, 0.5); }
 .stars-4 { color: var(--star4); text-shadow: 0 0 8px rgba(144, 133, 233, 0.5); }
+select option.opt-star5 { color: var(--star5); }
+select option.opt-star4 { color: var(--star4); }
 .char-card .cc-elem {
   position: absolute; top: 8px; left: 8px; width: 30px; height: 30px; border-radius: 50%;
   background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px);
@@ -318,6 +321,13 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 .detail-card-full img { width: 100%; border-radius: var(--radius); display: block; box-shadow: 0 12px 40px rgba(0,0,0,0.55); }
 .detail-info { padding: 24px; }
 .detail-info h2 { font-size: 26px; letter-spacing: 1px; margin-bottom: 4px; }
+.detail-icons { display: flex; gap: 12px; margin-bottom: 4px; }
+.detail-icons img {
+  width: 46px; height: 46px; object-fit: contain;
+  padding: 7px; border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--glass-border-soft);
+}
 .detail-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 20px; }
 .badge {
   display: inline-flex; align-items: center; gap: 7px;
@@ -533,6 +543,9 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 .pick-card.disabled:hover { transform: none; border-color: var(--glass-border-soft); }
 .pick-card .pk-star { position: absolute; top: 5px; right: 6px; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: rgba(0,0,0,0.6); }
 .pick-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* modal de escolha de linha da planilha importada */
+.sheet-pick { display: flex; flex-wrap: wrap; gap: 8px; max-height: 50vh; overflow-y: auto; }
 .pick-filters select, .pick-filters input { width: auto; flex: 1; min-width: 120px; padding: 8px 10px; font-size: 13px; }
 
 /* --------- histórico (gráfico de barras) --------- */

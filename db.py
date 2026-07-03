@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS characters (
     personality    TEXT,
     profession     TEXT,
     lore           TEXT,
+    role1          TEXT,
+    role2          TEXT,
     card_full      TEXT,
     card_promo     TEXT,
     archived       INTEGER NOT NULL DEFAULT 0,
@@ -94,6 +96,10 @@ def init_db():
         os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
     conn = get_db()
     conn.executescript(SCHEMA)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(characters)")}
+    for col in ("role1", "role2"):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
     conn.commit()
     conn.close()
 

@@ -6,7 +6,7 @@ Sistema web local para organizar os personagens do projeto **Niro**: cadastro de
 
 1. Instale o [Python 3.10+](https://www.python.org/downloads/) (marque "Add Python to PATH").
 2. Dê dois cliques em **`run.bat`**.
-3. Na primeira execução, um arquivo `.env` será criado — abra-o e cole sua chave do OpenRouter em `OPENROUTER_API_KEY=` para habilitar o preenchimento por IA.
+3. Na primeira execução, um arquivo `.env` será criado — abra-o e cole sua chave do Google AI Studio em `GOOGLE_AI_API_KEY=` para habilitar o preenchimento por IA.
 4. O sistema abre automaticamente no navegador em `http://localhost:3004` (ou na próxima porta livre).
 
 ## Como rodar (Linux/Mac)
@@ -32,7 +32,7 @@ python app.py
 
 ## Preenchimento por IA
 
-Nos campos *Ataque Normal, Skill 1, Skill 2, Ultimate, Personalidade* e *Lore* do cadastro de personagem há um botão ✦ que envia tudo o que já foi preenchido ao OpenRouter (modelo configurável no `.env`) e preenche o campo em tempo real.
+Nos campos *Ataque Normal, Skill 1, Skill 2, Ultimate, Personalidade* e *Lore* do cadastro de personagem há um botão ✦ que envia tudo o que já foi preenchido ao Google AI Studio (Gemini, modelo configurável no `.env`) e preenche o campo em tempo real.
 
 ## Dados
 

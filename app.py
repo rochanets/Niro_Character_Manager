@@ -672,7 +672,7 @@ def api_history():
                    current=next(o["label"] for o in options if o["id"] == banner_id))
 
 
-# ---------------------------------------------------------------- API: IA (OpenRouter)
+# ---------------------------------------------------------------- API: IA (Google AI Studio / Gemini)
 
 AI_FIELD_SPECS = {
     "normal_attack": ("Ataque Normal",
@@ -711,10 +711,10 @@ COMBAT_FIELDS = {"normal_attack", "skill1", "skill2", "ultimate"}
 
 @app.route("/api/ai_fill", methods=["POST"])
 def api_ai_fill():
-    api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    api_key = (os.environ.get("GOOGLE_AI_API_KEY") or "").strip()
     if not api_key:
-        return jsonify(error="Chave do OpenRouter não configurada. Edite o arquivo .env e "
-                             "preencha OPENROUTER_API_KEY."), 400
+        return jsonify(error="Chave do Google AI Studio não configurada. Edite o arquivo .env e "
+                             "preencha GOOGLE_AI_API_KEY."), 400
     body = request.get_json(force=True)
     field = body.get("field")
     if field not in AI_FIELD_SPECS:
@@ -758,30 +758,26 @@ def api_ai_fill():
         f"Tarefa: preencha o campo \"{label}\".\n{instruction}{extra}"
     )
 
-    model = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
+    model = os.environ.get("GOOGLE_AI_MODEL", "gemini-flash-latest")
     payload = {
-        "model": model,
-        "stream": True,
-        "max_tokens": 3000,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": {"maxOutputTokens": 3000},
     }
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "X-goog-api-key": api_key,
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3004",
-        "X-Title": "Niro Character Manager",
     }
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:streamGenerateContent?alt=sse")
 
     def generate():
         try:
-            with requests.post("https://openrouter.ai/api/v1/chat/completions",
-                               json=payload, headers=headers, stream=True, timeout=180) as resp:
+            with requests.post(url, json=payload, headers=headers,
+                               stream=True, timeout=180) as resp:
                 if resp.status_code != 200:
                     detail = resp.text[:300]
-                    yield f"ERRO: OpenRouter retornou {resp.status_code}. {detail}"
+                    yield f"ERRO: Google AI Studio retornou {resp.status_code}. {detail}"
                     return
                 # O stream SSE vem sem charset no Content-Type e o requests assume
                 # ISO-8859-1, desconfigurando os acentos — força UTF-8.
@@ -790,16 +786,14 @@ def api_ai_fill():
                     if not line or not line.startswith("data: "):
                         continue
                     chunk = line[6:]
-                    if chunk == "[DONE]":
-                        break
                     try:
-                        delta = json.loads(chunk)["choices"][0]["delta"].get("content") or ""
+                        delta = json.loads(chunk)["candidates"][0]["content"]["parts"][0].get("text") or ""
                     except (KeyError, IndexError, json.JSONDecodeError):
                         continue
                     if delta:
                         yield delta
         except requests.RequestException as exc:
-            yield f"ERRO: falha de conexão com o OpenRouter ({exc})"
+            yield f"ERRO: falha de conexão com o Google AI Studio ({exc})"
 
     return Response(stream_with_context(generate()),
                     mimetype="text/plain; charset=utf-8",

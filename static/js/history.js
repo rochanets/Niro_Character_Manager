@@ -1,5 +1,5 @@
 /* Módulo Histórico: gráfico de barras horizontais de ausência em banners.
-   Séries: 5★ (#c98500) e 4★ (#9085e9) — validadas p/ contraste e CVD no fundo escuro. */
+   Séries: 5★ dourado (--star5) e 4★ roxo (--star4) — padrão de raridade do app. */
 
 let historyRows = null;
 let currentLabel = '';
@@ -52,7 +52,7 @@ function renderGroup(rows, rarity, maxGap, step) {
     ${rows.map((r) => `
       <div class="bar-row r${r.rarity}" data-id="${r.id}">
         <span class="br-label">
-          <img src="/static/${esc(r.card_promo)}" alt="">
+          <img src="${esc(thumbUrl(r.card_promo, 64))}" alt="">
           ${esc(r.name)}
         </span>
         <span class="br-track" style="background-image:${gridImage}">

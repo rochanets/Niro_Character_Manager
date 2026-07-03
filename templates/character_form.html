@@ -25,7 +25,11 @@
   </div>
 
   <div class="form-section glass">
-    <h3>Identidade</h3>
+    <h3>Identidade
+      <button type="button" class="btn small" id="import-sheet-btn" title="Preencher os campos a partir de uma planilha (.xlsx ou .csv)">
+        &#x2B06; Importar planilha
+      </button>
+    </h3>
     <div class="form-grid">
       <div class="field">
         <label class="field-label" for="f-name">Nome *</label>
@@ -80,8 +84,8 @@
         <label class="field-label" for="f-rarity">Raridade *</label>
         <select id="f-rarity" name="rarity" required>
           <option value="">— selecione —</option>
-          <option value="5" {{ 'selected' if character and character.rarity == 5 }}>5 Estrelas ★★★★★</option>
-          <option value="4" {{ 'selected' if character and character.rarity == 4 }}>4 Estrelas ★★★★</option>
+          <option value="5" class="opt-star5" {{ 'selected' if character and character.rarity == 5 }}>5 Estrelas ★★★★★</option>
+          <option value="4" class="opt-star4" {{ 'selected' if character and character.rarity == 4 }}>4 Estrelas ★★★★</option>
         </select>
       </div>
       <div class="field">
@@ -99,6 +103,26 @@
 
   <div class="form-section glass">
     <h3>Combate</h3>
+    <div class="form-grid">
+      <div class="field">
+        <label class="field-label" for="f-role1">Role 1</label>
+        <select id="f-role1" name="role1">
+          <option value="">— selecione —</option>
+          {% for r in roles %}
+          <option value="{{ r }}" {{ 'selected' if character and character.role1 == r }}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-role2">Role 2 (opcional)</label>
+        <select id="f-role2" name="role2">
+          <option value="">— selecione —</option>
+          {% for r in roles %}
+          <option value="{{ r }}" {{ 'selected' if character and character.role2 == r }}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
     {% for field, label in [('normal_attack', 'Ataque Normal'), ('skill1', 'Skill 1'), ('skill2', 'Skill 2'), ('ultimate', 'Ultimate')] %}
     <div class="field">
       <label class="field-label" for="f-{{ field }}">{{ label }}

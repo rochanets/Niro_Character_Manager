@@ -150,6 +150,13 @@ document.addEventListener('paste', (e) => {
 });
 
 // ---------------------------------------------------------------- helpers de domínio
+
+// Miniatura redimensionada no servidor (alta qualidade) — evita a distorção
+// do downscale do navegador em imagens muito grandes. width em px físicos (~2x o CSS).
+function thumbUrl(rel, width) {
+  return rel ? `/thumb/${width}/${rel}` : '';
+}
+
 const RARITY_LABEL = { 5: '★★★★★', 4: '★★★★' };
 const BANNER_TYPE_LABEL = { unitario: 'Unitário', duplo: 'Duplo', especial: 'Especial' };
 

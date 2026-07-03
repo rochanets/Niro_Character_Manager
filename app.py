@@ -135,6 +135,11 @@ def page_params():
     return render_template("params.html", active="params")
 
 
+@app.route("/times")
+def page_teams():
+    return render_template("teams.html", active="teams")
+
+
 @app.route("/banners")
 def page_banners():
     return render_template("banners.html", active="banners")
@@ -488,6 +493,126 @@ def api_banner_remove_char(banner_id, char_id):
     conn = get_db()
     conn.execute("DELETE FROM banner_characters WHERE banner_id = ? AND character_id = ?",
                  (banner_id, char_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- API: times
+
+TEAM_SIZE = 4
+GRADIENT_MODES = 5
+
+
+def team_payload(conn):
+    teams = []
+    for t in conn.execute("SELECT * FROM teams ORDER BY created_at, id"):
+        rows = conn.execute(
+            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo,
+                      e.name AS element_name, e.image AS element_image
+               FROM team_members tm
+               LEFT JOIN characters c ON c.id = tm.character_id
+               LEFT JOIN elements e   ON e.id = c.element_id
+               WHERE tm.team_id = ?""",
+            (t["id"],),
+        ).fetchall()
+        by_slot = {r["slot"]: r for r in rows}
+        members = []
+        for slot in range(TEAM_SIZE):
+            r = by_slot.get(slot)
+            if r is None or r["id"] is None:
+                members.append(None)
+            else:
+                members.append({
+                    "id": r["id"], "name": r["name"], "rarity": r["rarity"],
+                    "card_promo": r["card_promo"],
+                    "element_name": r["element_name"],
+                    "element_image": r["element_image"],
+                })
+        teams.append({**dict(t), "members": members})
+    return teams
+
+
+@app.route("/api/teams")
+def api_teams():
+    conn = get_db()
+    out = team_payload(conn)
+    conn.close()
+    return jsonify(out)
+
+
+@app.route("/api/teams", methods=["POST"])
+def api_team_create():
+    body = request.get_json(force=True)
+    name = (body.get("name") or "").strip()
+    members = body.get("members")
+    if not name:
+        return jsonify(error="Informe o nome do time."), 400
+    if not isinstance(members, list) or len(members) != TEAM_SIZE:
+        return jsonify(error=f"O time precisa de exatamente {TEAM_SIZE} slots."), 400
+    ids = [m for m in members if m is not None]
+    if any(not isinstance(m, int) for m in ids):
+        return jsonify(error="Personagem inválido."), 400
+    if len(ids) != len(set(ids)):
+        return jsonify(error="Um personagem não pode se repetir no mesmo time."), 400
+    conn = get_db()
+    if conn.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE", (name,)).fetchone():
+        conn.close()
+        return jsonify(error="Já existe um time com esse nome."), 409
+    if ids:
+        marks = ",".join("?" * len(ids))
+        found = conn.execute(
+            f"SELECT id FROM characters WHERE id IN ({marks}) AND archived = 0", ids).fetchall()
+        if len(found) != len(ids):
+            conn.close()
+            return jsonify(error="Personagem inexistente ou arquivado."), 400
+        clash = conn.execute(
+            f"""SELECT c.name FROM team_members tm
+                JOIN characters c ON c.id = tm.character_id
+                WHERE tm.character_id IN ({marks})""", ids).fetchall()
+        if clash:
+            conn.close()
+            names = ", ".join(r["name"] for r in clash)
+            return jsonify(error=f"Personagem já está em outro time: {names}."), 409
+    cur = conn.execute("INSERT INTO teams (name) VALUES (?)", (name,))
+    team_id = cur.lastrowid
+    for slot, member in enumerate(members):
+        conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",
+                     (team_id, slot, member))
+    conn.commit()
+    conn.close()
+    return jsonify(id=team_id), 201
+
+
+@app.route("/api/teams/<int:team_id>", methods=["DELETE"])
+def api_team_delete(team_id):
+    conn = get_db()
+    conn.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/gradient", methods=["PUT"])
+def api_team_gradient(team_id):
+    mode = request.get_json(force=True).get("mode")
+    if not isinstance(mode, int) or not 0 <= mode < GRADIENT_MODES:
+        return jsonify(error="Modo de gradiente inválido."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    conn.execute("UPDATE teams SET gradient_mode = ? WHERE id = ?", (mode, team_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/members/<int:char_id>", methods=["DELETE"])
+def api_team_remove_member(team_id, char_id):
+    conn = get_db()
+    conn.execute("UPDATE team_members SET character_id = NULL "
+                 "WHERE team_id = ? AND character_id = ?", (team_id, char_id))
     conn.commit()
     conn.close()
     return jsonify(ok=True)

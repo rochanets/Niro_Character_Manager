@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS banner_characters (
     character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
     UNIQUE (banner_id, character_id)
 );
+CREATE TABLE IF NOT EXISTS teams (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    gradient_mode INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS team_members (
+    team_id      INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    slot         INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 3),
+    character_id INTEGER REFERENCES characters(id) ON DELETE CASCADE,
+    UNIQUE (team_id, slot),
+    UNIQUE (character_id)
+);
 """
 
 

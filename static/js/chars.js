@@ -20,11 +20,11 @@ async function load() {
 
 function cardHtml(c) {
   const elem = c.element.image
-    ? `<img class="cc-elem" src="/static/${esc(c.element.image)}" title="${esc(c.element.name)}" alt="">`
+    ? `<img class="cc-elem" src="${esc(thumbUrl(c.element.image, 64))}" title="${esc(c.element.name)}" alt="">`
     : '';
   return `
     <a class="char-card" href="/chars/${c.id}">
-      <img class="promo" src="/static/${esc(c.card_promo)}" alt="${esc(c.name)}" loading="lazy">
+      <img class="promo" src="${esc(thumbUrl(c.card_promo, 480))}" alt="${esc(c.name)}" loading="lazy">
       ${elem}
       <div class="cc-info">
         <span class="cc-name">${esc(c.name)}</span>

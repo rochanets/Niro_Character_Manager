@@ -11,7 +11,7 @@ async function load() {
 function bannerCharHtml(banner, c) {
   return `
     <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
-      <img src="/static/${esc(c.card_promo)}" alt="${esc(c.name)}">
+      <img src="${esc(thumbUrl(c.card_promo, 220))}" alt="${esc(c.name)}">
       <div class="bc-name">${esc(c.name)}</div>
       <button class="bc-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
     </div>`;
@@ -263,7 +263,7 @@ async function openPicker(bannerId) {
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : '';
       return `
         <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
-          <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
+          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <div class="pk-name">${esc(c.name)}</div>
         </div>`;

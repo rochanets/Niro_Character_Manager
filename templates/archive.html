@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Arquivo — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16BB;</span> Arquivo</h2>
+    <p class="page-sub">Personagens excluídos ficam aqui por 30 dias antes da remoção definitiva</p>
+  </div>
+</div>
+
+<div id="archive-area">
+  <div class="empty-state glass"><span class="rune">&#x16BB;</span>Carregando...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/archive.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Parâmetros — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16C7;</span> Parâmetros</h2>
+    <p class="page-sub">Regiões, afiliações, elementos e armas do mundo de Niro</p>
+  </div>
+</div>
+
+<div class="tabs" id="param-tabs">
+  <span class="tab active" data-type="region">Regiões</span>
+  <span class="tab" data-type="affiliation">Afiliações</span>
+  <span class="tab" data-type="element">Elementos</span>
+  <span class="tab" data-type="weapon">Armas</span>
+</div>
+
+<div class="param-add glass" id="param-add"></div>
+<div class="param-list" id="param-list"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/params.js') }}"></script>
+{% endblock %}

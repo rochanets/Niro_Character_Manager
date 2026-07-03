@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Niro Character Manager{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x16DE;</text></svg>">
+</head>
+<body>
+  <div class="bg-runes" aria-hidden="true"></div>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <aside class="sidebar glass">
+    <div class="sidebar-brand">
+      <span class="brand-rune">&#x16DE;</span>
+      <div>
+        <h1>NIRO</h1>
+        <span class="brand-sub">Character Manager</span>
+      </div>
+    </div>
+    <div class="rune-divider" aria-hidden="true">&#x16A0; &#x16B1; &#x16C7; &#x16D2; &#x16DE;</div>
+    <nav class="sidebar-nav">
+      <a href="/chars" class="nav-item {{ 'active' if active == 'chars' }}">
+        <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5Z"/></svg>
+        Chars
+      </a>
+      <a href="/banners" class="nav-item {{ 'active' if active == 'banners' }}">
+        <svg viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v16.5l-8-4-8 4V4a1 1 0 0 1 1-1Z"/></svg>
+        Banners
+      </a>
+      <a href="/historico" class="nav-item {{ 'active' if active == 'history' }}">
+        <svg viewBox="0 0 24 24"><path d="M4 5h4v14H4zM10 9h4v10h-4zM16 12h4v7h-4z"/></svg>
+        Histórico
+      </a>
+      <a href="/parametros" class="nav-item {{ 'active' if active == 'params' }}">
+        <svg viewBox="0 0 24 24"><path d="M19.4 13a7.8 7.8 0 0 0 .1-1 7.8 7.8 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7L19.6 5.3a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1L14.4 2.5a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4L9.2 5.1a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2L2.4 8.7a.5.5 0 0 0 .1.7L4.6 11a7.8 7.8 0 0 0-.1 1 7.8 7.8 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l1.9 3.4a.5.5 0 0 0 .6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1a.5.5 0 0 0 .6-.2l1.9-3.4a.5.5 0 0 0-.1-.7ZM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5Z"/></svg>
+        Parâmetros
+      </a>
+      <a href="/arquivo" class="nav-item {{ 'active' if active == 'archive' }}">
+        <svg viewBox="0 0 24 24"><path d="M20 6H4a1 1 0 0 0-1 1v2h18V7a1 1 0 0 0-1-1ZM4 20a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V10.5H4Zm5.5-7h5a.8.8 0 0 1 0 1.5h-5a.8.8 0 0 1 0-1.5Z"/></svg>
+        Arquivo
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="rune-divider" aria-hidden="true">&#x16C1; &#x16BB; &#x16A8;</div>
+      <span>Projeto Niro</span>
+    </div>
+  </aside>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Chars — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16A9;</span> Chars</h2>
+    <p class="page-sub">Personagens do projeto Niro</p>
+  </div>
+  <a href="/chars/new" class="btn primary">+ Novo Personagem</a>
+</div>
+
+<div class="toolbar glass">
+  <span class="lbl">Filtrar por</span>
+  <span class="chip" data-dim="region">Região</span>
+  <span class="chip" data-dim="affiliation">Afiliação</span>
+  <span class="chip" data-dim="element">Elemento</span>
+  <span class="chip" data-dim="weapon">Arma</span>
+  <span class="chip" data-dim="rarity">Raridade</span>
+  <span class="lbl" style="margin-left:12px">Ordenar</span>
+  <span class="chip violet" id="sort-chip">A &rarr; Z</span>
+  <span class="spacer"></span>
+  <input type="text" id="search" placeholder="Buscar por nome...">
+</div>
+
+<div id="chars-area">
+  <div class="empty-state"><span class="rune">&#x16DE;</span>Carregando...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chars.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar' if character else 'Novo' }} Personagem — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16B9;</span> {{ 'Editar Personagem' if character else 'Novo Personagem' }}</h2>
+    <p class="page-sub">Os campos com <span style="color:#7dbeff">&#10022;</span> podem ser preenchidos por IA usando o que você já digitou</p>
+  </div>
+  <a href="{{ '/chars/' ~ character.id if character else '/chars' }}" class="btn">&larr; Voltar</a>
+</div>
+
+<form id="char-form" data-char-id="{{ character.id if character else '' }}">
+  <div class="form-section glass">
+    <h3>Cards</h3>
+    <div class="form-grid">
+      <div class="field">
+        <label class="field-label">Card Completo *</label>
+        <div id="ii-card-full" data-existing="{{ '/static/' ~ character.card_full if character else '' }}"></div>
+      </div>
+      <div class="field">
+        <label class="field-label">Card Promo *</label>
+        <div id="ii-card-promo" data-existing="{{ '/static/' ~ character.card_promo if character else '' }}"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section glass">
+    <h3>Identidade</h3>
+    <div class="form-grid">
+      <div class="field">
+        <label class="field-label" for="f-name">Nome *</label>
+        <input type="text" id="f-name" name="name" maxlength="100" required
+               value="{{ character.name if character else '' }}">
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-region">Região</label>
+        <select id="f-region" name="region_id">
+          <option value="">— selecione —</option>
+          {% for r in params.region %}
+          <option value="{{ r.id }}" {{ 'selected' if character and character.region.id == r.id }}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-affiliation">Afiliação</label>
+        <select id="f-affiliation" name="affiliation_id">
+          <option value="">— selecione —</option>
+          {% for a in params.affiliation %}
+          <option value="{{ a.id }}" {{ 'selected' if character and character.affiliation.id == a.id }}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-age">Idade</label>
+        <input type="text" id="f-age" name="age" maxlength="40" value="{{ character.age if character else '' }}">
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-height">Altura</label>
+        <input type="text" id="f-height" name="height" maxlength="40" value="{{ character.height if character else '' }}">
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-element">Elemento</label>
+        <select id="f-element" name="element_id">
+          <option value="">— selecione —</option>
+          {% for e in params.element %}
+          <option value="{{ e.id }}" {{ 'selected' if character and character.element.id == e.id }}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-weapon">Arma</label>
+        <select id="f-weapon" name="weapon_id">
+          <option value="">— selecione —</option>
+          {% for w in params.weapon %}
+          <option value="{{ w.id }}" {{ 'selected' if character and character.weapon.id == w.id }}>{{ w.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-rarity">Raridade *</label>
+        <select id="f-rarity" name="rarity" required>
+          <option value="">— selecione —</option>
+          <option value="5" {{ 'selected' if character and character.rarity == 5 }}>5 Estrelas ★★★★★</option>
+          <option value="4" {{ 'selected' if character and character.rarity == 4 }}>4 Estrelas ★★★★</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-profession">Profissão</label>
+        <input type="text" id="f-profession" name="profession" maxlength="{{ limits.profession }}"
+               value="{{ character.profession if character else '' }}">
+      </div>
+    </div>
+    <div class="field">
+      <label class="field-label" for="f-dom">Dom</label>
+      <textarea id="f-dom" name="dom" maxlength="{{ limits.dom }}" rows="3">{{ character.dom if character else '' }}</textarea>
+      <div class="char-count" data-for="f-dom"></div>
+    </div>
+  </div>
+
+  <div class="form-section glass">
+    <h3>Combate</h3>
+    {% for field, label in [('normal_attack', 'Ataque Normal'), ('skill1', 'Skill 1'), ('skill2', 'Skill 2'), ('ultimate', 'Ultimate')] %}
+    <div class="field">
+      <label class="field-label" for="f-{{ field }}">{{ label }}
+        <button type="button" class="ai-btn" data-field="{{ field }}" title="Preencher com IA">
+          <svg viewBox="0 0 24 24"><path fill="#8ecbff" d="M12 1.5 14.4 9l7.6 3-7.6 3L12 22.5 9.6 15 2 12l7.6-3Z"/></svg>
+        </button>
+      </label>
+      <textarea id="f-{{ field }}" name="{{ field }}" maxlength="{{ limits[field] }}" rows="3">{{ character[field] if character else '' }}</textarea>
+      <div class="ai-progress" data-for="{{ field }}"><div class="bar"></div></div>
+      <div class="char-count" data-for="f-{{ field }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="form-section glass">
+    <h3>História</h3>
+    {% for field, label, rows in [('personality', 'Personalidade', 6), ('lore', 'Lore', 9)] %}
+    <div class="field">
+      <label class="field-label" for="f-{{ field }}">{{ label }}
+        <button type="button" class="ai-btn" data-field="{{ field }}" title="Preencher com IA">
+          <svg viewBox="0 0 24 24"><path fill="#8ecbff" d="M12 1.5 14.4 9l7.6 3-7.6 3L12 22.5 9.6 15 2 12l7.6-3Z"/></svg>
+        </button>
+      </label>
+      <textarea id="f-{{ field }}" name="{{ field }}" maxlength="{{ limits[field] }}" rows="{{ rows }}">{{ character[field] if character else '' }}</textarea>
+      <div class="ai-progress" data-for="{{ field }}"><div class="bar"></div></div>
+      <div class="char-count" data-for="f-{{ field }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div style="display:flex; gap:12px; justify-content:flex-end">
+    <a href="{{ '/chars/' ~ character.id if character else '/chars' }}" class="btn">Cancelar</a>
+    <button type="submit" class="btn primary" id="submit-btn">
+      {{ 'Salvar Alterações' if character else 'Cadastrar Personagem' }}
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>const TEXT_LIMITS = {{ limits | tojson }};</script>
+<script src="{{ url_for('static', filename='js/character_form.js') }}"></script>
+{% endblock %}

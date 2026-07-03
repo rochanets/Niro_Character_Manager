@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ c.name }} — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16A9;</span> {{ c.name }}</h2>
+    <p class="page-sub">
+      <span class="cc-stars stars-{{ c.rarity }}">{{ '★★★★★' if c.rarity == 5 else '★★★★' }}</span>
+      {{ '&nbsp;&middot;&nbsp;' | safe }}{{ c.profession or 'Sem profissão' }}
+    </p>
+  </div>
+  <div style="display:flex; gap:10px">
+    <a href="/chars" class="btn">&larr; Voltar</a>
+    <a href="/chars/{{ c.id }}/edit" class="btn primary">Editar</a>
+    <button class="btn danger" id="delete-btn">Excluir</button>
+  </div>
+</div>
+
+<div class="detail-layout">
+  <div class="detail-card-full">
+    <img src="/static/{{ c.card_full }}" alt="Card completo de {{ c.name }}">
+    <div style="margin-top:14px" class="glass detail-info">
+      <h4 style="font-size:11.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Card Promo</h4>
+      <img src="/static/{{ c.card_promo }}" alt="Card promo de {{ c.name }}" style="width:100%;border-radius:10px">
+    </div>
+  </div>
+
+  <div class="detail-info glass">
+    <div class="detail-badges">
+      {% if c.region.name %}<span class="badge">&#x16B7; {{ c.region.name }}</span>{% endif %}
+      {% if c.affiliation.name %}<span class="badge">&#x16BE; {{ c.affiliation.name }}</span>{% endif %}
+      {% if c.element.name %}
+      <span class="badge">
+        {% if c.element.image %}<img src="/static/{{ c.element.image }}" alt="">{% endif %}
+        {{ c.element.name }}
+      </span>
+      {% endif %}
+      {% if c.weapon.name %}
+      <span class="badge">
+        {% if c.weapon.image %}<img src="/static/{{ c.weapon.image }}" alt="">{% endif %}
+        {{ c.weapon.name }}
+      </span>
+      {% endif %}
+      {% if c.age %}<span class="badge">Idade: {{ c.age }}</span>{% endif %}
+      {% if c.height %}<span class="badge">Altura: {{ c.height }}</span>{% endif %}
+    </div>
+
+    {% for key, label in [('dom', 'Dom'), ('normal_attack', 'Ataque Normal'), ('skill1', 'Skill 1'),
+                          ('skill2', 'Skill 2'), ('ultimate', 'Ultimate'), ('personality', 'Personalidade'),
+                          ('lore', 'Lore')] %}
+      {% if c[key] %}
+      <div class="detail-field">
+        <h4>{{ label }}</h4>
+        <p>{{ c[key] }}</p>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('delete-btn').addEventListener('click', () => {
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DA;</span> Excluir personagem</h3>
+    <p style="color:var(--ink-2);line-height:1.6">
+      <b>{{ c.name }}</b> será movido para o <b>Arquivo</b> e poderá ser restaurado por
+      <b>30 dias</b>. Depois disso, será excluído definitivamente.
+    </p>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+      <button class="btn danger" data-confirm>Mover para o Arquivo</button>
+    </div>`);
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+  overlay.querySelector('[data-confirm]').onclick = async () => {
+    try {
+      await api('/api/characters/{{ c.id }}', { method: 'DELETE' });
+      toast('Personagem movido para o Arquivo.', 'success');
+      setTimeout(() => { window.location.href = '/chars'; }, 600);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+});
+</script>
+{% endblock %}

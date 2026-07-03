@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Banners — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16B1;</span> Banners</h2>
+    <p class="page-sub">Colunas: versões (1.x–8.x) &middot; Linhas: subversões (x.0–x.8)</p>
+  </div>
+  <button class="btn primary" id="new-banner-btn">+ Cadastrar Banner</button>
+</div>
+
+<div class="banner-board" id="banner-board">
+  <div class="empty-state"><span class="rune">&#x16B1;</span>Carregando...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/banners.js') }}"></script>
+{% endblock %}

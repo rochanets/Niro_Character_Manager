@@ -10,7 +10,7 @@ async function load() {
   }
   area.innerHTML = items.map((c) => `
     <div class="archive-item glass">
-      <img src="/static/${esc(c.card_promo)}" alt="">
+      <img src="${esc(thumbUrl(c.card_promo, 128))}" alt="">
       <div class="ai-info">
         <strong>${esc(c.name)}</strong> ${starsHtml(c.rarity)}
         <div class="ai-days ${c.days_left <= 5 ? 'warn' : ''}">

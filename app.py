@@ -1,7 +1,11 @@
+import csv
+import hashlib
+import io
 import json
 import os
 import socket
 import threading
+import unicodedata
 import webbrowser
 from datetime import datetime
 from uuid import uuid4
@@ -9,7 +13,7 @@ from uuid import uuid4
 import requests
 from dotenv import load_dotenv
 from flask import (Flask, Response, abort, jsonify, redirect, render_template,
-                   request, stream_with_context, url_for)
+                   request, send_file, stream_with_context, url_for)
 
 from db import BASE_DIR, UPLOAD_DIR, delete_upload, get_db, init_db, purge_expired_archive
 
@@ -36,6 +40,19 @@ BANNER_LIMITS = {
 TEXT_LIMITS = {
     "dom": 500, "normal_attack": 500, "skill1": 500, "skill2": 500,
     "ultimate": 500, "personality": 4000, "profession": 200, "lore": 4000,
+}
+
+ROLE_OPTIONS = ["DPS", "SubDPS", "Healer", "Buffer", "DeBuffer", "Shielder", "Burst DPS"]
+
+ROLE_DESCRIPTIONS = {
+    "DPS": "principal atacante do grupo, fica em campo a maior parte do tempo; pode contar com "
+           "conversão do ataque normal (que é físico, não elemental) em ataque elemental, auto buffs, etc.",
+    "SubDPS": "dá dano pontual e sai de campo, ou causa dano fora de campo",
+    "Healer": "curandeiro, restaura a vida do time",
+    "Buffer": "concede otimizações e melhorias para todo o time",
+    "DeBuffer": "causa status negativos nos inimigos",
+    "Shielder": "invoca escudos ou barreiras fixas",
+    "Burst DPS": "causa muito dano na ultimate e sai de campo",
 }
 
 
@@ -103,7 +120,8 @@ def page_char_new():
     params = fetch_params(conn)
     conn.close()
     return render_template("character_form.html", active="chars",
-                           params=params, character=None, limits=TEXT_LIMITS)
+                           params=params, character=None, limits=TEXT_LIMITS,
+                           roles=ROLE_OPTIONS)
 
 
 @app.route("/chars/<int:char_id>")
@@ -127,7 +145,7 @@ def page_char_edit(char_id):
         abort(404)
     return render_template("character_form.html", active="chars",
                            params=params, character=character_to_dict(row),
-                           limits=TEXT_LIMITS)
+                           limits=TEXT_LIMITS, roles=ROLE_OPTIONS)
 
 
 @app.route("/parametros")
@@ -257,6 +275,9 @@ def parse_character_form(form):
     for field in ("region_id", "affiliation_id", "element_id", "weapon_id"):
         raw = form.get(field)
         data[field] = int(raw) if raw and raw.isdigit() else None
+    for field in ("role1", "role2"):
+        value = (form.get(field) or "").strip()
+        data[field] = value if value in ROLE_OPTIONS else ""
     data["rarity"] = int(form.get("rarity") or 0)
     return data
 
@@ -375,6 +396,114 @@ def api_archive():
         d["days_left"] = max(0, 30 - (datetime.utcnow() - archived_at).days)
         out.append(d)
     return jsonify(out)
+
+
+# ---------------------------------------------------------------- API: importação de planilha
+
+def _norm_header(value):
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = text.encode("ascii", "ignore").decode()
+    return " ".join(text.lower().split())
+
+
+SHEET_FIELD_MAP = {
+    "nome": "name", "nacao": "region", "regiao": "region", "elemento": "element",
+    "raridade": "rarity", "arma": "weapon", "afiliacao": "affiliation",
+    "idade": "age", "altura": "height", "ataque normal": "normal_attack",
+    "skill 1": "skill1", "skill 2": "skill2", "ultimate": "ultimate",
+    "personalidade": "personality", "lore": "lore", "dom": "dom",
+    "profissao": "profession", "role 1": "role1", "role 2": "role2",
+}
+
+
+@app.route("/api/import_sheet", methods=["POST"])
+def api_import_sheet():
+    file = request.files.get("sheet")
+    if not file or not file.filename:
+        return jsonify(error="Envie um arquivo .xlsx ou .csv."), 400
+    ext = os.path.splitext(file.filename)[1].lower()
+    try:
+        if ext == ".xlsx":
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(file.read()), read_only=True, data_only=True)
+            table = [list(row) for row in wb.active.iter_rows(values_only=True)]
+            wb.close()
+        elif ext == ".csv":
+            text = file.read().decode("utf-8-sig", errors="replace")
+            sample = text[:2048]
+            delim = ";" if sample.count(";") > sample.count(",") else ","
+            table = list(csv.reader(io.StringIO(text), delimiter=delim))
+        else:
+            return jsonify(error="Formato não suportado. Envie .xlsx ou .csv."), 400
+    except Exception as exc:
+        return jsonify(error=f"Não foi possível ler a planilha ({exc})."), 400
+
+    table = [row for row in table if row and any(str(c or "").strip() for c in row)]
+    if len(table) < 2:
+        return jsonify(error="A planilha precisa de um cabeçalho e ao menos uma linha de dados."), 400
+
+    fields = [SHEET_FIELD_MAP.get(_norm_header(h)) for h in table[0]]
+    if "name" not in fields:
+        return jsonify(error="Planilha fora do padrão: a coluna NOME não foi encontrada."), 400
+
+    rows = []
+    for raw in table[1:]:
+        item = {}
+        for i, field in enumerate(fields):
+            if not field or i >= len(raw):
+                continue
+            value = str(raw[i] if raw[i] is not None else "").strip()
+            if not value:
+                continue
+            if field == "rarity":
+                stars = value.count("★") or (int(value) if value.isdigit() else 0)
+                if stars not in (4, 5):
+                    continue
+                value = str(stars)
+            limit = TEXT_LIMITS.get(field)
+            if limit and len(value) > limit:
+                value = value[:limit]
+            item[field] = value
+        if item.get("name"):
+            rows.append(item)
+    if not rows:
+        return jsonify(error="Nenhum personagem encontrado na planilha."), 400
+    return jsonify(rows=rows)
+
+
+# ---------------------------------------------------------------- thumbnails
+
+THUMB_DIR = os.path.join(UPLOAD_DIR, ".thumbs")
+
+
+@app.route("/thumb/<int:width>/<path:rel>")
+def thumb_image(rel, width):
+    """Serve uma versão reduzida (LANCZOS, alta qualidade) das imagens enviadas,
+    evitando a distorção do downscale feito pelo navegador em imagens grandes."""
+    width = max(16, min(width, 1600))
+    src = os.path.normpath(os.path.join(BASE_DIR, "static", rel.replace("/", os.sep)))
+    uploads_root = os.path.normpath(UPLOAD_DIR)
+    if not src.startswith(uploads_root + os.sep) or not os.path.isfile(src):
+        abort(404)
+    if os.path.splitext(src)[1].lower() == ".gif":  # preserva animação
+        return redirect(url_for("static", filename=rel))
+    key = hashlib.sha1(f"{rel}|{width}".encode()).hexdigest() + ".webp"
+    dest = os.path.join(THUMB_DIR, key)
+    if not os.path.isfile(dest) or os.path.getmtime(dest) < os.path.getmtime(src):
+        try:
+            from PIL import Image
+            with Image.open(src) as img:
+                img = img.convert("RGBA")
+                if img.width > width:
+                    height = max(1, round(img.height * width / img.width))
+                    img = img.resize((width, height), Image.LANCZOS)
+                os.makedirs(THUMB_DIR, exist_ok=True)
+                img.save(dest, "WEBP", quality=92, method=6)
+        except Exception:
+            return redirect(url_for("static", filename=rel))
+    resp = send_file(dest, mimetype="image/webp", conditional=True)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 # ---------------------------------------------------------------- API: banners
@@ -572,9 +701,12 @@ AI_FIELD_SPECS = {
 FIELD_LABELS_PT = {
     "name": "Nome", "age": "Idade", "height": "Altura", "rarity": "Raridade",
     "region": "Região", "affiliation": "Afiliação", "element": "Elemento", "weapon": "Arma",
+    "role1": "Role 1 (função em combate)", "role2": "Role 2 (função secundária)",
     "dom": "Dom", "normal_attack": "Ataque Normal", "skill1": "Skill 1", "skill2": "Skill 2",
     "ultimate": "Ultimate", "personality": "Personalidade", "profession": "Profissão", "lore": "Lore",
 }
+
+COMBAT_FIELDS = {"normal_attack", "skill1", "skill2", "ultimate"}
 
 
 @app.route("/api/ai_fill", methods=["POST"])
@@ -588,6 +720,7 @@ def api_ai_fill():
     if field not in AI_FIELD_SPECS:
         return jsonify(error="Campo inválido."), 400
     data = body.get("data") or {}
+    draft = (str(body.get("draft") or "")).strip()
 
     label, instruction = AI_FIELD_SPECS[field]
     context_lines = []
@@ -596,6 +729,22 @@ def api_ai_fill():
         if value and key != field:
             context_lines.append(f"- {pt}: {value}")
     context = "\n".join(context_lines) if context_lines else "(nenhum campo preenchido ainda)"
+
+    extra = ""
+    if field in COMBAT_FIELDS:
+        roles = [r for r in (str(data.get("role1") or "").strip(), str(data.get("role2") or "").strip())
+                 if r in ROLE_DESCRIPTIONS]
+        if roles:
+            role_lines = "\n".join(f"- {r}: {ROLE_DESCRIPTIONS[r]}" for r in roles)
+            extra += ("\n\nFunções (roles) do personagem em combate — a habilidade deve ser totalmente "
+                      f"coerente com essas funções:\n{role_lines}\n"
+                      "Lembre-se: neste jogo o ataque normal é ataque físico (não elemental), a menos que "
+                      "alguma habilidade converta o ataque normal em dano elemental.")
+    if draft:
+        extra += ("\n\nO usuário escreveu o texto abaixo como base para este campo. Use-o como BASE "
+                  "PRINCIPAL da resposta: preserve a intenção, os nomes e os detalhes descritos, apenas "
+                  "estruturando, lapidando e completando o texto final, ainda coerente com as demais "
+                  f"informações do personagem.\nBase do usuário: \"{draft}\"")
 
     system_prompt = (
         "Você é um escritor criativo de worldbuilding do projeto Niro, um universo de fantasia/RPG com "
@@ -606,7 +755,7 @@ def api_ai_fill():
     )
     user_prompt = (
         f"Informações já preenchidas do personagem:\n{context}\n\n"
-        f"Tarefa: preencha o campo \"{label}\".\n{instruction}"
+        f"Tarefa: preencha o campo \"{label}\".\n{instruction}{extra}"
     )
 
     model = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
@@ -634,6 +783,9 @@ def api_ai_fill():
                     detail = resp.text[:300]
                     yield f"ERRO: OpenRouter retornou {resp.status_code}. {detail}"
                     return
+                # O stream SSE vem sem charset no Content-Type e o requests assume
+                # ISO-8859-1, desconfigurando os acentos — força UTF-8.
+                resp.encoding = "utf-8"
                 for line in resp.iter_lines(decode_unicode=True):
                     if not line or not line.startswith("data: "):
                         continue

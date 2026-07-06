@@ -42,7 +42,7 @@ TEXT_LIMITS = {
     "ultimate": 500, "personality": 4000, "profession": 200, "lore": 4000,
 }
 
-ROLE_OPTIONS = ["DPS", "SubDPS", "Healer", "Buffer", "DeBuffer", "Shielder", "Burst DPS"]
+ROLE_OPTIONS = ["DPS", "SubDPS", "Healer", "Buffer", "DeBuffer", "Shielder", "Burst DPS", "Crowd Control"]
 
 ROLE_DESCRIPTIONS = {
     "DPS": "principal atacante do grupo, fica em campo a maior parte do tempo; pode contar com "
@@ -53,6 +53,7 @@ ROLE_DESCRIPTIONS = {
     "DeBuffer": "causa status negativos nos inimigos",
     "Shielder": "invoca escudos ou barreiras fixas",
     "Burst DPS": "causa muito dano na ultimate e sai de campo",
+    "Crowd Control": "controla o campo de batalha, prendendo, atordoando ou impedindo a ação dos inimigos",
 }
 
 

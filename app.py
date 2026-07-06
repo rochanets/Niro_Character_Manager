@@ -640,7 +640,7 @@ def thumb_image(rel, width):
 def banner_payload(conn):
     versions = {r["major"]: r["name"] for r in conn.execute("SELECT * FROM versions")}
     banners = []
-    for b in conn.execute("SELECT * FROM banners ORDER BY major, minor"):
+    for b in conn.execute("SELECT * FROM banners ORDER BY major, minor, half"):
         chars = conn.execute(
             """SELECT c.id, c.name, c.rarity, c.card_promo
                FROM banner_characters bc JOIN characters c ON c.id = bc.character_id
@@ -664,12 +664,15 @@ def api_banners():
 def api_banner_create():
     body = request.get_json(force=True)
     major, minor = body.get("major"), body.get("minor")
+    half = body.get("half", 1)
     btype = body.get("type")
     version_name = (body.get("version_name") or "").strip()
     if not isinstance(major, int) or not 1 <= major <= 8:
         return jsonify(error="Versão inválida."), 400
     if not isinstance(minor, int) or not 0 <= minor <= 8:
         return jsonify(error="Subversão inválida."), 400
+    if half not in (1, 2):
+        return jsonify(error="Metade inválida."), 400
     if btype not in BANNER_LIMITS:
         return jsonify(error="Tipo de banner inválido."), 400
     conn = get_db()
@@ -677,15 +680,83 @@ def api_banner_create():
     if not has_version and not version_name:
         conn.close()
         return jsonify(error=f"A versão {major}.x ainda não tem nome. Informe um nome."), 400
-    if conn.execute("SELECT 1 FROM banners WHERE major = ? AND minor = ?", (major, minor)).fetchone():
+    if conn.execute("SELECT 1 FROM banners WHERE major = ? AND minor = ? AND half = ?",
+                    (major, minor, half)).fetchone():
         conn.close()
-        return jsonify(error=f"Já existe um banner na versão {major}.{minor}."), 409
+        return jsonify(error=f"Já existe um banner na versão {major}.{minor} "
+                             f"({'1ª' if half == 1 else '2ª'} metade)."), 409
     if not has_version:
         conn.execute("INSERT INTO versions (major, name) VALUES (?, ?)", (major, version_name))
-    cur = conn.execute("INSERT INTO banners (major, minor, type) VALUES (?, ?, ?)", (major, minor, btype))
+    cur = conn.execute("INSERT INTO banners (major, minor, half, type) VALUES (?, ?, ?, ?)",
+                       (major, minor, half, btype))
     conn.commit()
     conn.close()
     return jsonify(id=cur.lastrowid), 201
+
+
+def version_seq(major, minor):
+    """Índice sequencial de versão (major.minor), crescente e contínuo entre majors."""
+    return major * 9 + minor
+
+
+@app.route("/api/banners/<int:banner_id>", methods=["PUT"])
+def api_banner_update(banner_id):
+    body = request.get_json(force=True)
+    major, minor = body.get("major"), body.get("minor")
+    half = body.get("half", 1)
+    btype = body.get("type")
+    version_name = (body.get("version_name") or "").strip()
+    if not isinstance(major, int) or not 1 <= major <= 8:
+        return jsonify(error="Versão inválida."), 400
+    if not isinstance(minor, int) or not 0 <= minor <= 8:
+        return jsonify(error="Subversão inválida."), 400
+    if half not in (1, 2):
+        return jsonify(error="Metade inválida."), 400
+    if btype not in BANNER_LIMITS:
+        return jsonify(error="Tipo de banner inválido."), 400
+    conn = get_db()
+    banner = conn.execute("SELECT * FROM banners WHERE id = ?", (banner_id,)).fetchone()
+    if not banner:
+        conn.close()
+        abort(404)
+    has_version = conn.execute("SELECT 1 FROM versions WHERE major = ?", (major,)).fetchone()
+    if not has_version and not version_name:
+        conn.close()
+        return jsonify(error=f"A versão {major}.x ainda não tem nome. Informe um nome."), 400
+    if conn.execute("SELECT 1 FROM banners WHERE major = ? AND minor = ? AND half = ? AND id != ?",
+                    (major, minor, half, banner_id)).fetchone():
+        conn.close()
+        return jsonify(error=f"Já existe um banner na versão {major}.{minor} "
+                             f"({'1ª' if half == 1 else '2ª'} metade)."), 409
+    for rarity, limit in BANNER_LIMITS[btype].items():
+        count = conn.execute(
+            """SELECT COUNT(*) AS n FROM banner_characters bc JOIN characters c ON c.id = bc.character_id
+               WHERE bc.banner_id = ? AND c.rarity = ?""", (banner_id, rarity)).fetchone()["n"]
+        if count > limit:
+            conn.close()
+            return jsonify(error=f"O banner tem {count} personagens {rarity}★, mas o tipo escolhido "
+                                 f"permite no máximo {limit}. Remova personagens antes de mudar o tipo."), 409
+    if (major, minor) != (banner["major"], banner["minor"]):
+        target_seq = version_seq(major, minor)
+        char_ids = [r["character_id"] for r in conn.execute(
+            "SELECT character_id FROM banner_characters WHERE banner_id = ?", (banner_id,)).fetchall()]
+        for cid in char_ids:
+            for a in conn.execute(
+                    """SELECT b2.major, b2.minor FROM banner_characters bc
+                       JOIN banners b2 ON b2.id = bc.banner_id
+                       WHERE bc.character_id = ? AND bc.banner_id != ?""", (cid, banner_id)).fetchall():
+                a_seq = version_seq(a["major"], a["minor"])
+                if a_seq == target_seq or abs(a_seq - target_seq) == 1:
+                    conn.close()
+                    return jsonify(error=f"Mover para a versão {major}.{minor} entraria em conflito "
+                                         f"com personagens já usados na versão {a['major']}.{a['minor']}."), 409
+    if not has_version:
+        conn.execute("INSERT INTO versions (major, name) VALUES (?, ?)", (major, version_name))
+    conn.execute("UPDATE banners SET major = ?, minor = ?, half = ?, type = ? WHERE id = ?",
+                 (major, minor, half, btype, banner_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
 
 
 @app.route("/api/banners/<int:banner_id>", methods=["DELETE"])
@@ -723,6 +794,21 @@ def api_banner_add_char(banner_id):
                     (banner_id, char_id)).fetchone():
         conn.close()
         return jsonify(error="Esse personagem já está no banner."), 409
+    target_seq = version_seq(banner["major"], banner["minor"])
+    appearances = conn.execute(
+        """SELECT b2.major, b2.minor FROM banner_characters bc
+           JOIN banners b2 ON b2.id = bc.banner_id
+           WHERE bc.character_id = ?""", (char_id,)).fetchall()
+    for a in appearances:
+        a_seq = version_seq(a["major"], a["minor"])
+        if a_seq == target_seq:
+            conn.close()
+            return jsonify(error=f"Esse personagem já está em outro banner da versão "
+                                 f"{a['major']}.{a['minor']}."), 409
+        if abs(a_seq - target_seq) == 1:
+            conn.close()
+            return jsonify(error=f"Esse personagem apareceu na versão {a['major']}.{a['minor']} "
+                                 f"e só pode retornar a partir de duas versões depois."), 409
     count = conn.execute(
         """SELECT COUNT(*) AS n FROM banner_characters bc
            JOIN characters c ON c.id = bc.character_id
@@ -994,14 +1080,15 @@ def api_history():
     banner_id = request.args.get("banner_id", type=int)
     conn = get_db()
     banners = conn.execute(
-        """SELECT b.id, b.major, b.minor,
+        """SELECT b.id, b.major, b.minor, b.half,
                   (SELECT COUNT(*) FROM banner_characters bc
                    JOIN characters c ON c.id = bc.character_id
                    WHERE bc.banner_id = b.id AND c.archived = 0) AS n_chars
-           FROM banners b ORDER BY b.major, b.minor"""
+           FROM banners b ORDER BY b.major, b.minor, b.half"""
     ).fetchall()
     timeline = [b for b in banners if b["n_chars"] > 0]
-    options = [{"id": b["id"], "label": f"{b['major']}.{b['minor']}"} for b in timeline]
+    options = [{"id": b["id"], "label": f"{b['major']}.{b['minor']} ({'1ª' if b['half'] == 1 else '2ª'})"}
+               for b in timeline]
     if banner_id is None or not any(b["id"] == banner_id for b in timeline):
         conn.close()
         return jsonify(options=options, rows=None)
@@ -1029,7 +1116,7 @@ def api_history():
         else:
             gap = current_idx - last
             b = timeline[last]
-            last_label = f"{b['major']}.{b['minor']}"
+            last_label = f"{b['major']}.{b['minor']} ({'1ª' if b['half'] == 1 else '2ª'})"
         rows.append({"id": c["id"], "name": c["name"], "rarity": c["rarity"],
                      "card_promo": c["card_promo"], "gap": gap, "last_banner": last_label})
     rows.sort(key=lambda r: (-r["rarity"], -r["gap"], r["name"].lower()))

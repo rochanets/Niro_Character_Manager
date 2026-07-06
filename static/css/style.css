@@ -405,6 +405,20 @@ select option.opt-star4 { color: var(--star4); }
   border: 1.5px dashed var(--glass-border-soft); border-radius: var(--radius);
   color: var(--ink-3); text-align: center; font-size: 12px; opacity: 0.5;
 }
+.banner-half + .banner-half { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--glass-border-soft); }
+.banner-half.empty-half {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; border: 1.5px dashed var(--glass-border-soft); border-radius: var(--radius-sm);
+  color: var(--ink-3);
+}
+.half-label { font-size: 11.5px; letter-spacing: 0.6px; font-weight: 600; }
+.half-add-btn {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px dashed var(--glass-border); background: transparent;
+  color: var(--ink-3); font-size: 15px; cursor: pointer; line-height: 1;
+  transition: all 0.2s ease;
+}
+.half-add-btn:hover { color: var(--accent); border-color: rgba(90, 215, 232, 0.5); background: rgba(90, 215, 232, 0.06); }
 .banner-box { position: relative; }
 .banner-box .bb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
 .banner-type {
@@ -472,7 +486,7 @@ select option.opt-star4 { color: var(--star4); }
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
-.team-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.team-head-actions, .icon-btn-group { display: flex; gap: 6px; flex-shrink: 0; }
 .team-head .icon-btn { background: rgba(0, 0, 0, 0.35); color: #fff; border-color: rgba(255, 255, 255, 0.2); }
 .team-comp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .comp-tag {

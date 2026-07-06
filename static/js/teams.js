@@ -206,12 +206,26 @@ function render() {
 }
 
 // ---------------------------------------------------------------- escolha de personagem p/ slot "?"
-function openMysteryPicker(team, slot) {
+async function openMysteryPicker(team, slot) {
   const available = allChars.filter((c) => !usedCharIds().has(c.id));
+  const params = await api('/api/params');
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
 
   const overlay = openModal(`
     <h3><span class="rune">&#x16DF;</span> Escolher personagem — ${esc(team.name)}</h3>
-    <input type="text" id="mp-search" placeholder="Buscar nome..." style="margin-bottom:10px">
+    <div class="pick-filters">
+      <input type="text" id="mp-search" placeholder="Buscar nome...">
+      ${selectHtml('mp-region', 'Região', params.region)}
+      ${selectHtml('mp-affiliation', 'Afiliação', params.affiliation)}
+      ${selectHtml('mp-element', 'Elemento', params.element)}
+      ${selectHtml('mp-weapon', 'Arma', params.weapon)}
+      ${selectHtml('mp-role1', 'Role 1', params.role)}
+      ${selectHtml('mp-role2', 'Role 2', params.role)}
+    </div>
     <div class="pick-grid" id="mp-grid"></div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -219,17 +233,47 @@ function openMysteryPicker(team, slot) {
 
   const gridEl = overlay.querySelector('#mp-grid');
   const searchEl = overlay.querySelector('#mp-search');
+  const dimFilterEls = {
+    region: overlay.querySelector('#mp-region'),
+    affiliation: overlay.querySelector('#mp-affiliation'),
+    element: overlay.querySelector('#mp-element'),
+    weapon: overlay.querySelector('#mp-weapon'),
+  };
+  const role1El = overlay.querySelector('#mp-role1');
+  const role2El = overlay.querySelector('#mp-role2');
 
   function renderGrid() {
     const term = searchEl.value.trim().toLowerCase();
-    const chars = available.filter((c) => !term || c.name.toLowerCase().includes(term));
+    const role1 = role1El.value;
+    const role2 = role2El.value;
+    const chars = available.filter((c) => {
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (role1 && c.role1 !== role1) return false;
+      if (role2 && c.role2 !== role2) return false;
+      for (const [dim, el] of Object.entries(dimFilterEls)) {
+        if (el.value && (c[dim].name || '') !== el.value) return false;
+      }
+      return true;
+    });
+
     gridEl.innerHTML = chars.length
-      ? chars.map((c) => `
+      ? chars.map((c) => {
+          const elem = c.element.image
+            ? `<img class="pk-elem" src="/static/${esc(c.element.image)}" alt="${esc(c.element.name)}" title="${esc(c.element.name)}">`
+            : '';
+          const roles = [c.role1, c.role2].filter(Boolean);
+          const rolesHtml = roles.length
+            ? `<div class="pk-roles">${roles.map((r) => `<span class="tm-role">${esc(r)}</span>`).join('')}</div>`
+            : '';
+          return `
           <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
             <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
             <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
             <div class="pk-name">${esc(c.name)}</div>
-          </div>`).join('')
+            ${elem}
+            ${rolesHtml}
+          </div>`;
+        }).join('')
       : '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>';
 
     gridEl.querySelectorAll('[data-char]').forEach((card) =>
@@ -248,6 +292,9 @@ function openMysteryPicker(team, slot) {
   }
 
   searchEl.addEventListener('input', renderGrid);
+  Object.values(dimFilterEls).forEach((el) => el.addEventListener('change', renderGrid));
+  role1El.addEventListener('change', renderGrid);
+  role2El.addEventListener('change', renderGrid);
   renderGrid();
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
 }

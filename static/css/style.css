@@ -583,6 +583,8 @@ select option.opt-star4 { color: var(--star4); }
 .pick-card.disabled { opacity: 0.32; cursor: not-allowed; }
 .pick-card.disabled:hover { transform: none; border-color: var(--glass-border-soft); }
 .pick-card .pk-star { position: absolute; top: 5px; right: 6px; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: rgba(0,0,0,0.6); }
+.pick-card img.pk-elem { width: 18px; height: 18px; aspect-ratio: unset; object-fit: contain; display: inline-block; margin-bottom: 4px; }
+.pick-card .pk-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 0 6px 7px; }
 .pick-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* modal de escolha de linha da planilha importada */

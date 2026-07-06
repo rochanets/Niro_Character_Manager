@@ -130,6 +130,7 @@ function teamHtml(t) {
         <span class="team-name">${esc(t.name)}</span>
         <div class="team-head-actions">
           <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
+          <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
           <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
         </div>
       </div>
@@ -153,6 +154,8 @@ function render() {
 
   root.querySelectorAll('[data-grad]').forEach((btn) =>
     btn.addEventListener('click', () => cycleGradient(+btn.dataset.grad)));
+  root.querySelectorAll('[data-edit]').forEach((btn) =>
+    btn.addEventListener('click', () => openTeamModal(teams.find((t) => t.id === +btn.dataset.edit))));
   root.querySelectorAll('[data-delete]').forEach((btn) =>
     btn.addEventListener('click', () => deleteTeam(+btn.dataset.delete)));
   root.querySelectorAll('.tm-remove').forEach((btn) =>
@@ -200,19 +203,22 @@ function deleteTeam(teamId) {
   };
 }
 
-// ---------------------------------------------------------------- cadastro
-document.getElementById('new-team-btn').addEventListener('click', () => {
+// ---------------------------------------------------------------- cadastro / edição
+function openTeamModal(editTeam) {
+  const isEdit = !!editTeam;
   const used = usedCharIds();
+  if (isEdit) editTeam.members.forEach((m) => { if (m) used.delete(m.id); });
   const available = allChars.filter((c) => !used.has(c.id));
   const byId = new Map(available.map((c) => [c.id, c]));
   // null = slot vazio, 'q' = "?", número = id do personagem
-  const sel = [null, null, null, null];
+  const sel = isEdit ? editTeam.members.map((m) => (m ? m.id : 'q')) : [null, null, null, null];
+  if (isEdit) sel.forEach((v, i) => { if (v !== 'q' && !byId.has(v)) byId.set(v, editTeam.members[i]); });
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16DF;</span> Cadastrar Time</h3>
+    <h3><span class="rune">&#x16DF;</span> ${isEdit ? 'Editar' : 'Cadastrar'} Time</h3>
     <div class="field">
       <label class="field-label">Nome do time</label>
-      <input type="text" id="tm-name" maxlength="60" placeholder="Ex.: Vanguarda de Niro">
+      <input type="text" id="tm-name" maxlength="60" placeholder="Ex.: Vanguarda de Niro" value="${isEdit ? esc(editTeam.name) : ''}">
     </div>
     <label class="field-label">Escalação — clique num slot preenchido para esvaziá-lo</label>
     <div class="team-slots" id="tm-slots"></div>
@@ -221,7 +227,7 @@ document.getElementById('new-team-btn').addEventListener('click', () => {
     <div class="pick-grid" id="tm-grid"></div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
-      <button class="btn primary" data-save>Cadastrar</button>
+      <button class="btn primary" data-save>${isEdit ? 'Salvar' : 'Cadastrar'}</button>
     </div>`, { wide: true });
 
   const slotsEl = overlay.querySelector('#tm-slots');
@@ -286,16 +292,18 @@ document.getElementById('new-team-btn').addEventListener('click', () => {
     if (!name) { toast('Informe o nome do time.', 'error'); return; }
     if (sel.includes(null)) { toast('Preencha os 4 slots do time (use "?" se necessário).', 'error'); return; }
     try {
-      await api('/api/teams', {
-        method: 'POST',
+      await api(isEdit ? `/api/teams/${editTeam.id}` : '/api/teams', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, members: sel.map((v) => (v === 'q' ? null : v)) }),
       });
       closeModal(overlay);
-      toast('Time cadastrado!', 'success');
+      toast(isEdit ? 'Time atualizado!' : 'Time cadastrado!', 'success');
       await load();
     } catch (err) { toast(err.message, 'error'); }
   };
-});
+}
+
+document.getElementById('new-team-btn').addEventListener('click', () => openTeamModal());
 
 load().catch((e) => toast(e.message, 'error'));

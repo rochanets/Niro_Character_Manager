@@ -8,6 +8,14 @@ async function load() {
   render();
 }
 
+const versionSeq = (major, minor) => major * 9 + minor;
+
+// quantas vezes o personagem já apareceu em banners até (e incluindo) a versão-alvo
+function appearanceCount(charId, targetSeq) {
+  return bannerData.banners.filter((b) =>
+    versionSeq(b.major, b.minor) <= targetSeq && b.characters.some((c) => c.id === charId)).length;
+}
+
 function bannerCharHtml(banner, c) {
   return `
     <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
@@ -216,7 +224,6 @@ async function openNewBannerModal(prefill, editBanner) {
 function initEditBannerChars(overlay, bannerId) {
   const charsEl = overlay.querySelector('#nb-chars');
   const grid = overlay.querySelector('#nb-pk-grid');
-  const versionSeq = (major, minor) => major * 9 + minor;
 
   function currentBanner() {
     return bannerData.banners.find((b) => b.id === bannerId);
@@ -283,16 +290,19 @@ function initEditBannerChars(overlay, bannerId) {
       return;
     }
     const banner = currentBanner();
+    const targetSeq = versionSeq(banner.major, banner.minor);
     grid.innerHTML = chars.map((c) => {
       const already = inBannerIds.has(c.id);
       const full = slotsLeft(c.rarity) <= 0;
       const conflict = !already && !full ? versionConflict(c.id) : '';
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
+      const count = appearanceCount(c.id, targetSeq);
       return `
         <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+          <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
         </div>`;
     }).join('');
@@ -390,7 +400,6 @@ async function openPicker(bannerId) {
     <div class="pick-grid" id="pk-grid"></div>`, { wide: true });
 
   const grid = overlay.querySelector('#pk-grid');
-  const versionSeq = (major, minor) => major * 9 + minor;
   const targetSeq = versionSeq(banner.major, banner.minor);
 
   function slotsLeft(rarity) {
@@ -442,10 +451,12 @@ async function openPicker(bannerId) {
       const conflict = !already && !full ? versionConflict(c.id) : '';
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
+      const count = appearanceCount(c.id, targetSeq);
       return `
         <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+          <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
         </div>`;
     }).join('');

@@ -156,17 +156,36 @@ function memberHtml(team, m, slot) {
     </div>`;
 }
 
+function compTagHtml(el) {
+  const img = el.image ? `<img src="/static/${esc(el.image)}" alt="${esc(el.name)}">` : '';
+  return `<span class="comp-tag">${img}${esc(el.name)}</span>`;
+}
+
+function compositionHtml(t) {
+  if (!t.element1) return '';
+  const mono = t.element2 && t.element1.id === t.element2.id;
+  if (mono) {
+    const img = t.element1.image ? `<img src="/static/${esc(t.element1.image)}" alt="${esc(t.element1.name)}">` : '';
+    return `<div class="team-comp-tags"><span class="comp-tag mono">${img}MONO ${esc(t.element1.name.toUpperCase())}</span></div>`;
+  }
+  const tag2 = t.element2 ? compTagHtml(t.element2) : '<span class="comp-tag mystery">?</span>';
+  return `<div class="team-comp-tags">${compTagHtml(t.element1)}${tag2}</div>`;
+}
+
 function teamHtml(t) {
   const nextTitle = GRADIENT_TITLES[(t.gradient_mode + 1) % GRADIENT_MODES];
   return `
     <div class="team-card glass">
       <div class="team-head" data-team="${t.id}">
-        <span class="team-name">${esc(t.name)}</span>
-        <div class="team-head-actions">
-          <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
-          <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
-          <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
+        <div class="team-head-top">
+          <span class="team-name">${esc(t.name)}</span>
+          <div class="team-head-actions">
+            <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
+            <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
+            <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
+          </div>
         </div>
+        ${compositionHtml(t)}
       </div>
       <div class="team-members">
         ${t.members.map((m, i) => memberHtml(t, m, i)).join('')}
@@ -206,12 +225,26 @@ function render() {
 }
 
 // ---------------------------------------------------------------- escolha de personagem p/ slot "?"
-function openMysteryPicker(team, slot) {
+async function openMysteryPicker(team, slot) {
   const available = allChars.filter((c) => !usedCharIds().has(c.id));
+  const params = await api('/api/params');
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
 
   const overlay = openModal(`
     <h3><span class="rune">&#x16DF;</span> Escolher personagem — ${esc(team.name)}</h3>
-    <input type="text" id="mp-search" placeholder="Buscar nome..." style="margin-bottom:10px">
+    <div class="pick-filters">
+      <input type="text" id="mp-search" placeholder="Buscar nome...">
+      ${selectHtml('mp-region', 'Região', params.region)}
+      ${selectHtml('mp-affiliation', 'Afiliação', params.affiliation)}
+      ${selectHtml('mp-element', 'Elemento', params.element)}
+      ${selectHtml('mp-weapon', 'Arma', params.weapon)}
+      ${selectHtml('mp-role1', 'Role 1', params.role)}
+      ${selectHtml('mp-role2', 'Role 2', params.role)}
+    </div>
     <div class="pick-grid" id="mp-grid"></div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -219,17 +252,47 @@ function openMysteryPicker(team, slot) {
 
   const gridEl = overlay.querySelector('#mp-grid');
   const searchEl = overlay.querySelector('#mp-search');
+  const dimFilterEls = {
+    region: overlay.querySelector('#mp-region'),
+    affiliation: overlay.querySelector('#mp-affiliation'),
+    element: overlay.querySelector('#mp-element'),
+    weapon: overlay.querySelector('#mp-weapon'),
+  };
+  const role1El = overlay.querySelector('#mp-role1');
+  const role2El = overlay.querySelector('#mp-role2');
 
   function renderGrid() {
     const term = searchEl.value.trim().toLowerCase();
-    const chars = available.filter((c) => !term || c.name.toLowerCase().includes(term));
+    const role1 = role1El.value;
+    const role2 = role2El.value;
+    const chars = available.filter((c) => {
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (role1 && c.role1 !== role1) return false;
+      if (role2 && c.role2 !== role2) return false;
+      for (const [dim, el] of Object.entries(dimFilterEls)) {
+        if (el.value && (c[dim].name || '') !== el.value) return false;
+      }
+      return true;
+    });
+
     gridEl.innerHTML = chars.length
-      ? chars.map((c) => `
+      ? chars.map((c) => {
+          const elem = c.element.image
+            ? `<img class="pk-elem" src="/static/${esc(c.element.image)}" alt="${esc(c.element.name)}" title="${esc(c.element.name)}">`
+            : '';
+          const roles = [c.role1, c.role2].filter(Boolean);
+          const rolesHtml = roles.length
+            ? `<div class="pk-roles">${roles.map((r) => `<span class="tm-role">${esc(r)}</span>`).join('')}</div>`
+            : '';
+          return `
           <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
             <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
             <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
             <div class="pk-name">${esc(c.name)}</div>
-          </div>`).join('')
+            ${elem}
+            ${rolesHtml}
+          </div>`;
+        }).join('')
       : '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>';
 
     gridEl.querySelectorAll('[data-char]').forEach((card) =>
@@ -248,6 +311,9 @@ function openMysteryPicker(team, slot) {
   }
 
   searchEl.addEventListener('input', renderGrid);
+  Object.values(dimFilterEls).forEach((el) => el.addEventListener('change', renderGrid));
+  role1El.addEventListener('change', renderGrid);
+  role2El.addEventListener('change', renderGrid);
   renderGrid();
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
 }
@@ -304,11 +370,27 @@ async function openTeamModal(editTeam) {
       ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
     </select>`;
 
+  const compEl1Id = isEdit && editTeam.element1 ? editTeam.element1.id : '';
+  const compEl2Id = isEdit && editTeam.element2 ? editTeam.element2.id : '';
+  const elementOptionsHtml = (items, selectedId) => items.map((i) =>
+    `<option value="${i.id}" ${+selectedId === i.id ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
+
   const overlay = openModal(`
     <h3><span class="rune">&#x16DF;</span> ${isEdit ? 'Editar' : 'Cadastrar'} Time</h3>
     <div class="field">
       <label class="field-label">Nome do time</label>
       <input type="text" id="tm-name" maxlength="60" placeholder="Ex.: Vanguarda de Niro" value="${isEdit ? esc(editTeam.name) : ''}">
+    </div>
+    <label class="field-label">Composição — elementos que formam o time</label>
+    <div class="team-comp">
+      <select id="tm-comp-el1">
+        <option value="">Elemento 1...</option>
+        ${elementOptionsHtml(params.element, compEl1Id)}
+      </select>
+      <select id="tm-comp-el2">
+        <option value="">Random (?)</option>
+        ${elementOptionsHtml(params.element, compEl2Id)}
+      </select>
     </div>
     <label class="field-label">Escalação — arraste um personagem até um slot, ou clique num slot preenchido para esvaziá-lo</label>
     <div class="team-slots" id="tm-slots"></div>
@@ -447,13 +529,21 @@ async function openTeamModal(editTeam) {
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
   overlay.querySelector('[data-save]').onclick = async () => {
     const name = overlay.querySelector('#tm-name').value.trim();
+    const el1Val = overlay.querySelector('#tm-comp-el1').value;
+    const el2Val = overlay.querySelector('#tm-comp-el2').value;
     if (!name) { toast('Informe o nome do time.', 'error'); return; }
+    if (!el1Val) { toast('Selecione o elemento 1 da composição do time.', 'error'); return; }
     if (sel.includes(null)) { toast('Preencha os 4 slots do time (use "?" se necessário).', 'error'); return; }
     try {
       await api(isEdit ? `/api/teams/${editTeam.id}` : '/api/teams', {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, members: sel.map((v) => (v === 'q' ? null : v)) }),
+        body: JSON.stringify({
+          name,
+          members: sel.map((v) => (v === 'q' ? null : v)),
+          element1_id: +el1Val,
+          element2_id: el2Val ? +el2Val : null,
+        }),
       });
       closeModal(overlay);
       toast(isEdit ? 'Time atualizado!' : 'Time cadastrado!', 'success');
@@ -462,6 +552,88 @@ async function openTeamModal(editTeam) {
   };
 }
 
+// ---------------------------------------------------------------- combinações de elementos
+function pairKey(id1, id2) {
+  return [id1, id2].sort((a, b) => a - b).join('-');
+}
+
+function pairLabel(a, b) {
+  return a.id === b.id ? `Mono ${a.name}` : `${a.name} + ${b.name}`;
+}
+
+function pairImgsHtml(a, b) {
+  const img = (el) => el.image ? `<img src="/static/${esc(el.image)}" alt="${esc(el.name)}">` : '';
+  return img(a) + (a.id !== b.id ? img(b) : '');
+}
+
+async function openCombinationsModal() {
+  const params = await api('/api/params');
+  const elements = params.element;
+  if (elements.length < 1) { toast('Cadastre elementos em Parâmetros primeiro.', 'error'); return; }
+
+  const existing = new Set();
+  teams.forEach((t) => { if (t.element1 && t.element2) existing.add(pairKey(t.element1.id, t.element2.id)); });
+
+  const pairs = [];
+  for (let i = 0; i < elements.length; i++) {
+    for (let j = i; j < elements.length; j++) pairs.push([elements[i], elements[j]]);
+  }
+  const missing = pairs.filter(([a, b]) => !existing.has(pairKey(a.id, b.id)));
+  const done = pairs.filter(([a, b]) => existing.has(pairKey(a.id, b.id)));
+
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Combinações de elementos</h3>
+    <p style="color:var(--ink-2)">Clique numa combinação ainda não criada para gerar um time automaticamente (4 slots "?").</p>
+    <label class="field-label">Faltando (${missing.length})</label>
+    <div class="combo-grid" id="combo-missing"></div>
+    ${done.length ? `<label class="field-label" style="margin-top:16px">Já criadas (${done.length})</label>
+    <div class="combo-grid" id="combo-done"></div>` : ''}
+    <div class="modal-actions">
+      <button class="btn" data-close>Fechar</button>
+    </div>`, { wide: true });
+
+  const missingEl = overlay.querySelector('#combo-missing');
+  missingEl.innerHTML = missing.length
+    ? missing.map(([a, b]) => `
+        <div class="combo-card" data-e1="${a.id}" data-e2="${b.id}" title="Clique para criar o time ${esc(pairLabel(a, b))}">
+          <div class="combo-imgs">${pairImgsHtml(a, b)}</div>
+          <div class="combo-label">${esc(pairLabel(a, b))}</div>
+        </div>`).join('')
+    : '<div class="empty-state" style="grid-column:1/-1;padding:20px">Todas as combinações já têm um time!</div>';
+
+  const doneEl = overlay.querySelector('#combo-done');
+  if (doneEl) {
+    doneEl.innerHTML = done.map(([a, b]) => `
+      <div class="combo-card done" title="${esc(pairLabel(a, b))}">
+        <div class="combo-imgs">${pairImgsHtml(a, b)}</div>
+        <div class="combo-label">${esc(pairLabel(a, b))}</div>
+      </div>`).join('');
+  }
+
+  missingEl.querySelectorAll('.combo-card').forEach((card) =>
+    card.addEventListener('click', async () => {
+      const a = elements.find((e) => e.id === +card.dataset.e1);
+      const b = elements.find((e) => e.id === +card.dataset.e2);
+      const name = pairLabel(a, b);
+      try {
+        await api('/api/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name, members: [null, null, null, null],
+            element1_id: a.id, element2_id: b.id,
+          }),
+        });
+        closeModal(overlay);
+        toast(`Time "${name}" criado!`, 'success');
+        await load();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
 document.getElementById('new-team-btn').addEventListener('click', () => openTeamModal());
+document.getElementById('combos-btn').addEventListener('click', () => openCombinationsModal());
 
 load().catch((e) => toast(e.message, 'error'));

@@ -30,7 +30,38 @@ function render() {
   const majors = [...new Set(banners.map((b) => b.major))].sort((a, b) => a - b);
   const minors = [...new Set(banners.map((b) => b.minor))].sort((a, b) => a - b);
   const byCell = {};
-  banners.forEach((b) => { byCell[`${b.major}.${b.minor}`] = b; });
+  banners.forEach((b) => { byCell[`${b.major}.${b.minor}.${b.half}`] = b; });
+
+  function halfBoxHtml(major, minor, half) {
+    const banner = byCell[`${major}.${minor}.${half}`];
+    const halfLabel = half === 1 ? '1ª metade' : '2ª metade';
+    if (!banner) {
+      return `
+        <div class="banner-half empty-half">
+          <span class="half-label">${halfLabel}</span>
+          <button class="half-add-btn" data-add-half="${major}.${minor}.${half}" title="Cadastrar banner (${halfLabel})">+</button>
+        </div>`;
+    }
+    const five = banner.characters.filter((c) => c.rarity === 5);
+    const four = banner.characters.filter((c) => c.rarity === 4);
+    return `
+      <div class="banner-half">
+        <div class="banner-box">
+          <div class="bb-head">
+            <span class="banner-type ${banner.type}">${BANNER_TYPE_LABEL[banner.type]} &middot; ${major}.${minor} &middot; ${halfLabel}</span>
+            <div class="icon-btn-group">
+              <button class="icon-btn" data-edit-banner="${banner.id}" title="Editar banner">&#x270E;</button>
+              <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
+            </div>
+          </div>
+          <div class="banner-chars">
+            ${five.map((c) => bannerCharHtml(banner, c)).join('')}
+            ${four.map((c) => bannerCharHtml(banner, c)).join('')}
+            <button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>
+          </div>
+        </div>
+      </div>`;
+  }
 
   let html = '<table class="banner-table"><thead><tr><th></th>';
   for (const major of majors) {
@@ -45,26 +76,10 @@ function render() {
   for (const minor of minors) {
     html += `<tr><td class="minor-label">x.${minor}</td>`;
     for (const major of majors) {
-      const banner = byCell[`${major}.${minor}`];
-      if (!banner) {
-        html += '<td class="banner-cell empty-cell">—</td>';
-        continue;
-      }
-      const five = banner.characters.filter((c) => c.rarity === 5);
-      const four = banner.characters.filter((c) => c.rarity === 4);
       html += `
         <td class="banner-cell glass">
-          <div class="banner-box">
-            <div class="bb-head">
-              <span class="banner-type ${banner.type}">${BANNER_TYPE_LABEL[banner.type]} &middot; ${major}.${minor}</span>
-              <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
-            </div>
-            <div class="banner-chars">
-              ${five.map((c) => bannerCharHtml(banner, c)).join('')}
-              ${four.map((c) => bannerCharHtml(banner, c)).join('')}
-              <button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>
-            </div>
-          </div>
+          ${halfBoxHtml(major, minor, 1)}
+          ${halfBoxHtml(major, minor, 2)}
         </td>`;
     }
     html += '</tr>';
@@ -76,8 +91,16 @@ function render() {
     btn.addEventListener('click', () => renameVersion(+btn.dataset.rename)));
   board.querySelectorAll('[data-delete]').forEach((btn) =>
     btn.addEventListener('click', () => deleteBanner(+btn.dataset.delete)));
+  board.querySelectorAll('[data-edit-banner]').forEach((btn) =>
+    btn.addEventListener('click', () =>
+      openNewBannerModal(null, bannerData.banners.find((b) => b.id === +btn.dataset.editBanner))));
   board.querySelectorAll('[data-add]').forEach((btn) =>
     btn.addEventListener('click', () => openPicker(+btn.dataset.add)));
+  board.querySelectorAll('[data-add-half]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [major, minor, half] = btn.dataset.addHalf.split('.').map(Number);
+      openNewBannerModal({ major, minor, half });
+    }));
   board.querySelectorAll('.bc-remove').forEach((btn) =>
     btn.addEventListener('click', async () => {
       try {
@@ -87,15 +110,24 @@ function render() {
     }));
 }
 
-// ---------------------------------------------------------------- cadastro
-document.getElementById('new-banner-btn').addEventListener('click', () => {
+// ---------------------------------------------------------------- cadastro / edição
+function openNewBannerModal(prefill, editBanner) {
+  const isEdit = !!editBanner;
+  const base = editBanner || prefill;
   const majorOptions = Array.from({ length: 8 }, (_, i) => i + 1)
-    .map((m) => `<option value="${m}">${m}.x${bannerData.versions[m] ? ` — ${esc(bannerData.versions[m])}` : ''}</option>`).join('');
+    .map((m) => `<option value="${m}" ${base && base.major === m ? 'selected' : ''}>${m}.x${bannerData.versions[m] ? ` — ${esc(bannerData.versions[m])}` : ''}</option>`).join('');
   const minorOptions = Array.from({ length: 9 }, (_, i) => i)
-    .map((m) => `<option value="${m}">.${m}</option>`).join('');
+    .map((m) => `<option value="${m}" ${base && base.minor === m ? 'selected' : ''}>.${m}</option>`).join('');
+  const halfOptions = [1, 2]
+    .map((h) => `<option value="${h}" ${base && base.half === h ? 'selected' : ''}>${h === 1 ? '1ª metade (dias 1–25)' : '2ª metade (dias 26–50)'}</option>`).join('');
+  const typeOptions = [
+    ['unitario', 'Unitário — 1 personagem 5★ + 3 personagens 4★'],
+    ['duplo', 'Duplo — 2 personagens 5★ + 3 personagens 4★'],
+    ['especial', 'Especial — até 10 personagens 5★ + 5 personagens 4★'],
+  ].map(([v, label]) => `<option value="${v}" ${editBanner && editBanner.type === v ? 'selected' : ''}>${label}</option>`).join('');
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16B1;</span> Cadastrar Banner</h3>
+    <h3><span class="rune">&#x16B1;</span> ${isEdit ? 'Editar' : 'Cadastrar'} Banner</h3>
     <div class="form-grid">
       <div class="field">
         <label class="field-label">Versão</label>
@@ -106,21 +138,21 @@ document.getElementById('new-banner-btn').addEventListener('click', () => {
         <select id="nb-minor">${minorOptions}</select>
       </div>
     </div>
+    <div class="field">
+      <label class="field-label">Metade da versão</label>
+      <select id="nb-half">${halfOptions}</select>
+    </div>
     <div class="field" id="nb-name-field">
       <label class="field-label">Nome da versão</label>
       <input type="text" id="nb-name" maxlength="80" placeholder="Ex.: O Despertar das Runas">
     </div>
     <div class="field">
       <label class="field-label">Tipo de banner</label>
-      <select id="nb-type">
-        <option value="unitario">Unitário — 1 personagem 5★ + 3 personagens 4★</option>
-        <option value="duplo">Duplo — 2 personagens 5★ + 3 personagens 4★</option>
-        <option value="especial">Especial — até 10 personagens 5★ + 5 personagens 4★</option>
-      </select>
+      <select id="nb-type">${typeOptions}</select>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
-      <button class="btn primary" data-save>Cadastrar</button>
+      <button class="btn primary" data-save>${isEdit ? 'Salvar' : 'Cadastrar'}</button>
     </div>`);
 
   const majorSel = overlay.querySelector('#nb-major');
@@ -137,22 +169,25 @@ document.getElementById('new-banner-btn').addEventListener('click', () => {
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
   overlay.querySelector('[data-save]').onclick = async () => {
     try {
-      await api('/api/banners', {
-        method: 'POST',
+      await api(isEdit ? `/api/banners/${editBanner.id}` : '/api/banners', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           major: +majorSel.value,
           minor: +overlay.querySelector('#nb-minor').value,
+          half: +overlay.querySelector('#nb-half').value,
           type: overlay.querySelector('#nb-type').value,
           version_name: nameInput.value.trim(),
         }),
       });
       closeModal(overlay);
-      toast('Banner cadastrado! Use o botão + para adicionar personagens.', 'success');
+      toast(isEdit ? 'Banner atualizado!' : 'Banner cadastrado! Use o botão + para adicionar personagens.', 'success');
       await load();
     } catch (err) { toast(err.message, 'error'); }
   };
-});
+}
+
+document.getElementById('new-banner-btn').addEventListener('click', () => openNewBannerModal());
 
 async function renameVersion(major) {
   const current = bannerData.versions[major] || '';
@@ -180,7 +215,7 @@ async function renameVersion(major) {
 function deleteBanner(bannerId) {
   const banner = bannerData.banners.find((b) => b.id === bannerId);
   const overlay = openModal(`
-    <h3><span class="rune">&#x16DA;</span> Excluir banner ${banner.major}.${banner.minor}</h3>
+    <h3><span class="rune">&#x16DA;</span> Excluir banner ${banner.major}.${banner.minor} (${banner.half === 1 ? '1ª' : '2ª'} metade)</h3>
     <p style="color:var(--ink-2)">Os personagens não serão excluídos, apenas o banner.</p>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -208,7 +243,7 @@ async function openPicker(bannerId) {
     </select>`;
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor}
+    <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor} (${banner.half === 1 ? '1ª' : '2ª'} metade)
       <span style="font-size:12px;color:var(--ink-3);font-weight:400">(${BANNER_TYPE_LABEL[banner.type]})</span>
     </h3>
     <div class="pick-filters">
@@ -224,11 +259,25 @@ async function openPicker(bannerId) {
     <div class="pick-grid" id="pk-grid"></div>`, { wide: true });
 
   const grid = overlay.querySelector('#pk-grid');
+  const versionSeq = (major, minor) => major * 9 + minor;
+  const targetSeq = versionSeq(banner.major, banner.minor);
 
   function slotsLeft(rarity) {
     const inBanner = bannerData.banners.find((b) => b.id === bannerId).characters
       .filter((c) => c.rarity === rarity).length;
     return bannerData.limits[banner.type][rarity] - inBanner;
+  }
+
+  // versão(s) em que o personagem já apareceu, para bloquear repetição na mesma
+  // versão (outra metade) ou em versões adjacentes (precisa de 1 versão de intervalo)
+  function versionConflict(charId) {
+    for (const b of bannerData.banners) {
+      if (!b.characters.some((c) => c.id === charId)) continue;
+      const seq = versionSeq(b.major, b.minor);
+      if (seq === targetSeq && b.id !== bannerId) return `Já está na versão ${b.major}.${b.minor}`;
+      if (Math.abs(seq - targetSeq) === 1) return `Apareceu na versão ${b.major}.${b.minor} (precisa de 1 versão de intervalo)`;
+    }
+    return '';
   }
 
   function renderGrid() {
@@ -259,8 +308,9 @@ async function openPicker(bannerId) {
     grid.innerHTML = chars.map((c) => {
       const already = inBannerIds.has(c.id);
       const full = slotsLeft(c.rarity) <= 0;
-      const disabled = already || full;
-      const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : '';
+      const conflict = !already && !full ? versionConflict(c.id) : '';
+      const disabled = already || full || !!conflict;
+      const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       return `
         <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">

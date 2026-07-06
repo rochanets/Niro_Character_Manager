@@ -64,9 +64,10 @@ CREATE TABLE IF NOT EXISTS banners (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
     minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
+    half       INTEGER NOT NULL DEFAULT 1 CHECK (half IN (1, 2)),
     type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (major, minor)
+    UNIQUE (major, minor, half)
 );
 CREATE TABLE IF NOT EXISTS banner_characters (
     banner_id    INTEGER NOT NULL REFERENCES banners(id) ON DELETE CASCADE,
@@ -77,6 +78,8 @@ CREATE TABLE IF NOT EXISTS teams (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
     gradient_mode INTEGER NOT NULL DEFAULT 0,
+    element1_id   INTEGER REFERENCES elements(id),
+    element2_id   INTEGER REFERENCES elements(id),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS team_members (
@@ -109,6 +112,33 @@ def get_db():
     return conn
 
 
+def _migrate_banners_half(conn):
+    """Adiciona a coluna 'half' (1ª/2ª metade da versão) recriando a tabela,
+    já que a UNIQUE(major, minor) antiga precisa virar UNIQUE(major, minor, half)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(banners)")}
+    if "half" in cols:
+        return
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    conn.execute("ALTER TABLE banners RENAME TO banners_old")
+    conn.execute("""
+        CREATE TABLE banners (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
+            minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
+            half       INTEGER NOT NULL DEFAULT 1 CHECK (half IN (1, 2)),
+            type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (major, minor, half)
+        )
+    """)
+    conn.execute("""INSERT INTO banners (id, major, minor, half, type, created_at)
+                    SELECT id, major, minor, 1, type, created_at FROM banners_old""")
+    conn.execute("DROP TABLE banners_old")
+    conn.execute("PRAGMA legacy_alter_table = OFF")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
 def init_db():
     for sub in ("characters", "elements", "weapons"):
         os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
@@ -118,6 +148,11 @@ def init_db():
     for col in ("role1", "role2"):
         if col not in existing:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
+    existing_teams = {row[1] for row in conn.execute("PRAGMA table_info(teams)")}
+    for col in ("element1_id", "element2_id"):
+        if col not in existing_teams:
+            conn.execute(f"ALTER TABLE teams ADD COLUMN {col} INTEGER REFERENCES elements(id)")
+    _migrate_banners_half(conn)
     if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():
         conn.executemany("INSERT INTO roles (name, description) VALUES (?, ?)", DEFAULT_ROLES)
     conn.commit()

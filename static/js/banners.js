@@ -16,6 +16,90 @@ function appearanceCount(charId, targetSeq) {
     versionSeq(b.major, b.minor) <= targetSeq && b.characters.some((c) => c.id === charId)).length;
 }
 
+// ---------------------------------------------------------------- popover de histórico por raridade (hover no picker)
+let histPopover = null;
+
+function ensureHistPopover() {
+  if (!histPopover) {
+    histPopover = document.createElement('div');
+    histPopover.className = 'banner-hist-popover';
+    document.body.appendChild(histPopover);
+  }
+  return histPopover;
+}
+
+function hideRarityHistoryPopover() {
+  if (histPopover) histPopover.style.display = 'none';
+}
+
+const halfSeq = (b) => versionSeq(b.major, b.minor) * 2 + (b.half - 1);
+
+// histórico de aparições dos personagens da mesma raridade, até a versão/metade alvo
+function rarityHistoryRows(rarity, targetMajor, targetMinor, targetHalf) {
+  const targetKey = halfSeq({ major: targetMajor, minor: targetMinor, half: targetHalf });
+  const timeline = bannerData.banners
+    .filter((b) => b.characters.length > 0)
+    .sort((a, b) => halfSeq(a) - halfSeq(b));
+  const currentIdx = timeline.filter((b) => halfSeq(b) < targetKey).length;
+  const lastIdx = {};
+  timeline.forEach((b, i) => {
+    if (halfSeq(b) <= targetKey) b.characters.forEach((c) => { lastIdx[c.id] = i; });
+  });
+  const rows = allChars.filter((c) => c.rarity === rarity).map((c) => {
+    const last = lastIdx[c.id];
+    const gap = last === undefined ? currentIdx + 1 : currentIdx - last;
+    const b = last !== undefined ? timeline[last] : null;
+    return {
+      id: c.id, name: c.name, rarity: c.rarity,
+      gap, last_banner: b ? `${b.major}.${b.minor} (${b.half === 1 ? '1ª' : '2ª'})` : null,
+    };
+  });
+  rows.sort((a, b) => b.gap - a.gap || a.name.localeCompare(b.name));
+  return rows;
+}
+
+function showRarityHistoryPopover(anchorEl, charId, rarity, targetMajor, targetMinor, targetHalf) {
+  const pop = ensureHistPopover();
+  const rows = rarityHistoryRows(rarity, targetMajor, targetMinor, targetHalf);
+  const maxGap = Math.max(1, ...rows.map((r) => r.gap));
+  const halfLabel = targetHalf === 1 ? '1ª' : '2ª';
+  pop.innerHTML = `
+    <div class="hp-title">Aparições em banners &middot; ${rarity}★ &middot; até ${targetMajor}.${targetMinor} (${halfLabel})</div>
+    <div class="hp-rows">
+      ${rows.map((r) => `
+        <div class="hp-row r${r.rarity} ${r.id === charId ? 'hp-current' : ''}" title="${r.gap === 0 ? 'está no banner atual' : r.last_banner ? `última aparição no banner ${esc(r.last_banner)}` : 'nunca apareceu em um banner'}">
+          <span class="hp-name">${esc(r.name)}</span>
+          <span class="hp-track"><span class="hp-fill" style="width:${maxGap ? (r.gap / maxGap) * 100 : 0}%${r.gap === 0 ? ';display:none' : ''}"></span></span>
+          <span class="hp-value">${r.gap}</span>
+        </div>`).join('')}
+    </div>`;
+  pop.style.display = 'block';
+  const rect = anchorEl.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let left = rect.right + 12;
+  if (left + popRect.width > window.innerWidth - 10) left = rect.left - popRect.width - 12;
+  if (left < 10) left = 10;
+  let top = rect.top;
+  if (top + popRect.height > window.innerHeight - 10) top = window.innerHeight - popRect.height - 10;
+  if (top < 10) top = 10;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+
+// liga o hover de histórico por raridade a todas as pick-cards de uma grade
+function attachRarityHistoryHover(grid, getTargetVersion) {
+  grid.querySelectorAll('.pick-card').forEach((card) => {
+    const rarity = +card.dataset.rarity;
+    card.addEventListener('mouseenter', () => {
+      const target = getTargetVersion();
+      showRarityHistoryPopover(card, +card.dataset.char, rarity, target.major, target.minor, target.half);
+    });
+    card.addEventListener('mouseleave', hideRarityHistoryPopover);
+  });
+}
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideRarityHistoryPopover(); });
+
 function bannerCharHtml(banner, c) {
   return `
     <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
@@ -299,7 +383,7 @@ function initEditBannerChars(overlay, bannerId) {
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       const count = appearanceCount(c.id, targetSeq);
       return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
+        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
@@ -320,10 +404,12 @@ function initEditBannerChars(overlay, bannerId) {
           renderGrid();
         } catch (err) { toast(err.message, 'error'); }
       }));
+    attachRarityHistoryHover(grid, () => currentBanner());
   }
 
   overlay.querySelectorAll('#nb-pk-search, #nb-pk-region, #nb-pk-affiliation, #nb-pk-element, #nb-pk-weapon, #nb-pk-rarity')
     .forEach((el) => el.addEventListener('input', renderGrid));
+  overlay.addEventListener('mousedown', hideRarityHistoryPopover);
   renderChars();
   renderGrid();
 }
@@ -453,7 +539,7 @@ async function openPicker(bannerId) {
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       const count = appearanceCount(c.id, targetSeq);
       return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
+        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
@@ -473,10 +559,12 @@ async function openPicker(bannerId) {
           renderGrid();
         } catch (err) { toast(err.message, 'error'); }
       }));
+    attachRarityHistoryHover(grid, () => banner);
   }
 
   overlay.querySelectorAll('select, input').forEach((el) =>
     el.addEventListener('input', renderGrid));
+  overlay.addEventListener('mousedown', hideRarityHistoryPopover);
   renderGrid();
 }
 

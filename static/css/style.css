@@ -704,6 +704,29 @@ select option.opt-star4 { color: var(--star4); }
 .viz-table th { color: var(--ink-3); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; }
 .viz-table td.num { font-variant-numeric: tabular-nums; }
 
+/* popover de histórico por raridade (hover nas pick-cards do módulo Banners) */
+.banner-hist-popover {
+  position: fixed; z-index: 300; pointer-events: none; display: none;
+  background: rgba(15, 15, 30, 0.95); border: 1px solid var(--glass-border);
+  border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px); width: 280px;
+}
+.banner-hist-popover .hp-title {
+  font-size: 10.5px; letter-spacing: 0.5px; color: var(--ink-3); margin-bottom: 10px;
+  text-transform: uppercase;
+}
+.banner-hist-popover .hp-rows { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.banner-hist-popover .hp-row {
+  display: grid; grid-template-columns: 92px 1fr 22px; align-items: center; gap: 8px; font-size: 12px;
+}
+.banner-hist-popover .hp-row.hp-current .hp-name { color: var(--accent); font-weight: 600; }
+.banner-hist-popover .hp-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.banner-hist-popover .hp-track { position: relative; height: 12px; background: rgba(255, 255, 255, 0.06); border-radius: 4px; overflow: hidden; }
+.banner-hist-popover .hp-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; min-width: 2px; }
+.banner-hist-popover .hp-row.r5 .hp-fill { background: var(--star5); }
+.banner-hist-popover .hp-row.r4 .hp-fill { background: var(--star4); }
+.banner-hist-popover .hp-value { font-size: 11px; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+
 /* --------- arquivo --------- */
 .archive-item { display: flex; align-items: center; gap: 16px; padding: 14px 18px; margin-bottom: 12px; }
 .archive-item img { width: 56px; height: 74px; object-fit: cover; border-radius: 8px; }

@@ -201,12 +201,18 @@ function deleteTeam(teamId) {
 }
 
 // ---------------------------------------------------------------- cadastro
-document.getElementById('new-team-btn').addEventListener('click', () => {
+document.getElementById('new-team-btn').addEventListener('click', async () => {
   const used = usedCharIds();
   const available = allChars.filter((c) => !used.has(c.id));
   const byId = new Map(available.map((c) => [c.id, c]));
+  const params = await api('/api/params');
   // null = slot vazio, 'q' = "?", número = id do personagem
   const sel = [null, null, null, null];
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
 
   const overlay = openModal(`
     <h3><span class="rune">&#x16DF;</span> Cadastrar Time</h3>
@@ -214,10 +220,18 @@ document.getElementById('new-team-btn').addEventListener('click', () => {
       <label class="field-label">Nome do time</label>
       <input type="text" id="tm-name" maxlength="60" placeholder="Ex.: Vanguarda de Niro">
     </div>
-    <label class="field-label">Escalação — clique num slot preenchido para esvaziá-lo</label>
+    <label class="field-label">Escalação — arraste um personagem até um slot, ou clique num slot preenchido para esvaziá-lo</label>
     <div class="team-slots" id="tm-slots"></div>
     <label class="field-label">Personagens disponíveis</label>
-    <input type="text" id="tm-search" placeholder="Buscar nome..." style="margin-bottom:10px">
+    <div class="pick-filters">
+      <input type="text" id="tm-search" placeholder="Buscar nome...">
+      ${selectHtml('tm-region', 'Região', params.region)}
+      ${selectHtml('tm-affiliation', 'Afiliação', params.affiliation)}
+      ${selectHtml('tm-element', 'Elemento', params.element)}
+      ${selectHtml('tm-weapon', 'Arma', params.weapon)}
+      ${selectHtml('tm-role1', 'Role 1', params.role)}
+      ${selectHtml('tm-role2', 'Role 2', params.role)}
+    </div>
     <div class="pick-grid" id="tm-grid"></div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -227,56 +241,116 @@ document.getElementById('new-team-btn').addEventListener('click', () => {
   const slotsEl = overlay.querySelector('#tm-slots');
   const gridEl = overlay.querySelector('#tm-grid');
   const searchEl = overlay.querySelector('#tm-search');
+  const dimFilterEls = {
+    region: overlay.querySelector('#tm-region'),
+    affiliation: overlay.querySelector('#tm-affiliation'),
+    element: overlay.querySelector('#tm-element'),
+    weapon: overlay.querySelector('#tm-weapon'),
+  };
+  const role1El = overlay.querySelector('#tm-role1');
+  const role2El = overlay.querySelector('#tm-role2');
+
+  function assign(idx, value) {
+    sel[idx] = value;
+    renderSlots();
+    renderGrid();
+  }
 
   function renderSlots() {
     slotsEl.innerHTML = sel.map((v, i) => {
       if (v === null) return `<div class="team-slot empty" data-slot="${i}"><span>+</span></div>`;
-      if (v === 'q') return `<div class="team-slot mystery" data-slot="${i}" title="Clique para esvaziar">?</div>`;
+      if (v === 'q') return `<div class="team-slot mystery" data-slot="${i}" draggable="true" title="Clique para esvaziar, ou arraste para trocar de slot">?</div>`;
       const c = byId.get(v);
       return `
-        <div class="team-slot" data-slot="${i}" title="Clique para esvaziar">
+        <div class="team-slot" data-slot="${i}" draggable="true" title="Clique para esvaziar, ou arraste para trocar de slot">
           <img src="/static/${esc(c.card_promo)}" alt="${esc(c.name)}">
           <div class="ts-name">${esc(c.name)}</div>
         </div>`;
     }).join('');
-    slotsEl.querySelectorAll('.team-slot:not(.empty)').forEach((slot) =>
-      slot.addEventListener('click', () => { sel[+slot.dataset.slot] = null; renderSlots(); renderGrid(); }));
+
+    slotsEl.querySelectorAll('.team-slot:not(.empty)').forEach((slot) => {
+      slot.addEventListener('click', () => { sel[+slot.dataset.slot] = null; renderSlots(); renderGrid(); });
+      slot.addEventListener('dragstart', (e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', JSON.stringify({ from: 'slot', index: +slot.dataset.slot }));
+      });
+    });
+
+    slotsEl.querySelectorAll('.team-slot').forEach((slot) => {
+      slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); });
+      slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+      slot.addEventListener('drop', (e) => {
+        e.preventDefault();
+        slot.classList.remove('drag-over');
+        let payload;
+        try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (_) { return; }
+        const idx = +slot.dataset.slot;
+        if (payload.from === 'pick') {
+          assign(idx, payload.value);
+        } else if (payload.from === 'slot' && payload.index !== idx) {
+          const tmp = sel[idx];
+          sel[idx] = sel[payload.index];
+          sel[payload.index] = tmp;
+          renderSlots();
+          renderGrid();
+        }
+      });
+    });
   }
 
   function pick(value) {
     const empty = sel.indexOf(null);
     if (empty === -1) { toast('Os 4 slots já estão preenchidos.', 'error'); return; }
-    sel[empty] = value;
-    renderSlots();
-    renderGrid();
+    assign(empty, value);
   }
 
   function renderGrid() {
     const term = searchEl.value.trim().toLowerCase();
-    const chars = available.filter((c) => !sel.includes(c.id) &&
-      (!term || c.name.toLowerCase().includes(term)));
+    const role1 = role1El.value;
+    const role2 = role2El.value;
+    const chars = available.filter((c) => {
+      if (sel.includes(c.id)) return false;
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (role1 && c.role1 !== role1) return false;
+      if (role2 && c.role2 !== role2) return false;
+      for (const [dim, el] of Object.entries(dimFilterEls)) {
+        if (el.value && (c[dim].name || '') !== el.value) return false;
+      }
+      return true;
+    });
 
     const mysteryCard = `
-      <div class="pick-card pick-mystery" data-mystery title="Slot desconhecido">
+      <div class="pick-card pick-mystery" data-mystery draggable="true" title="Slot desconhecido">
         <div class="pm-block">?</div>
         <div class="pk-name">?</div>
       </div>`;
     const charCards = chars.map((c) => `
-      <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
+      <div class="pick-card" data-char="${c.id}" draggable="true" title="${esc(c.name)}">
         <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
         <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
         <div class="pk-name">${esc(c.name)}</div>
       </div>`).join('');
 
     gridEl.innerHTML = mysteryCard + (charCards ||
-      '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>');
+      '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem encontrado.</div>');
 
     gridEl.querySelector('[data-mystery]').addEventListener('click', () => pick('q'));
     gridEl.querySelectorAll('[data-char]').forEach((card) =>
       card.addEventListener('click', () => pick(+card.dataset.char)));
+
+    gridEl.querySelectorAll('.pick-card').forEach((card) => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.effectAllowed = 'copy';
+        const value = card.dataset.mystery !== undefined ? 'q' : +card.dataset.char;
+        e.dataTransfer.setData('text/plain', JSON.stringify({ from: 'pick', value }));
+      });
+    });
   }
 
   searchEl.addEventListener('input', renderGrid);
+  Object.values(dimFilterEls).forEach((el) => el.addEventListener('change', renderGrid));
+  role1El.addEventListener('change', renderGrid);
+  role2El.addEventListener('change', renderGrid);
   renderSlots();
   renderGrid();
 

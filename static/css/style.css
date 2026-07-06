@@ -461,19 +461,29 @@ select option.opt-star4 { color: var(--star4); }
 @media (min-width: 1101px) and (max-width: 1500px) { .team-grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .team-card { overflow: hidden; }
 .team-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 13px 16px;
   background: linear-gradient(90deg, rgba(20, 66, 168, 0.32), rgba(137, 207, 244, 0.28));
   border-bottom: 1px solid var(--glass-border-soft);
   transition: background 0.35s ease;
 }
+.team-head-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .team-head .team-name {
   font-weight: 700; font-size: 16px; letter-spacing: 1.5px; color: #fff;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .team-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .team-head .icon-btn { background: rgba(0, 0, 0, 0.35); color: #fff; border-color: rgba(255, 255, 255, 0.2); }
+.team-comp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.comp-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px;
+  padding: 3px 9px 3px 5px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.18); color: #fff;
+}
+.comp-tag img { width: 15px; height: 15px; object-fit: contain; }
+.comp-tag.mono { padding-left: 9px; }
+.comp-tag.mystery { color: var(--ink-3); }
 .team-members { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 14px 16px 18px; }
 .team-member { text-align: center; min-width: 0; }
 .tm-card {
@@ -510,6 +520,8 @@ select option.opt-star4 { color: var(--star4); }
 .tm-card:hover .tm-remove { display: flex; }
 
 /* modal de cadastro de time */
+.team-comp { display: flex; gap: 10px; margin: 10px 0 18px; }
+.team-comp select { flex: 1; }
 .team-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 18px; }
 .team-slot {
   position: relative; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden;
@@ -586,6 +598,21 @@ select option.opt-star4 { color: var(--star4); }
 .pick-card img.pk-elem { width: 18px; height: 18px; aspect-ratio: unset; object-fit: contain; display: inline-block; margin-bottom: 4px; }
 .pick-card .pk-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 0 6px 7px; }
 .pick-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* modal de combinações de elementos */
+.combo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 10px; }
+.combo-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 8px; border-radius: 10px; cursor: pointer; text-align: center;
+  border: 1px solid var(--glass-border-soft); background: var(--glass);
+  transition: all 0.15s ease;
+}
+.combo-card:hover { border-color: rgba(90, 215, 232, 0.55); transform: translateY(-2px); }
+.combo-card.done { cursor: default; opacity: 0.5; }
+.combo-card.done:hover { transform: none; border-color: var(--glass-border-soft); }
+.combo-imgs { display: flex; gap: 4px; }
+.combo-imgs img { width: 30px; height: 30px; object-fit: contain; }
+.combo-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 
 /* modal de escolha de linha da planilha importada */
 .sheet-pick { display: flex; flex-wrap: wrap; gap: 8px; max-height: 50vh; overflow-y: auto; }

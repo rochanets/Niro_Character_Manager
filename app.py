@@ -759,7 +759,14 @@ GRADIENT_MODES = 5
 
 def team_payload(conn):
     teams = []
-    for t in conn.execute("SELECT * FROM teams ORDER BY created_at, id"):
+    for t in conn.execute(
+        """SELECT te.*, e1.name AS element1_name, e1.image AS element1_image,
+                  e2.name AS element2_name, e2.image AS element2_image
+           FROM teams te
+           LEFT JOIN elements e1 ON e1.id = te.element1_id
+           LEFT JOIN elements e2 ON e2.id = te.element2_id
+           ORDER BY te.created_at, te.id"""
+    ):
         rows = conn.execute(
             """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.role1, c.role2,
                       e.name AS element_name, e.image AS element_image
@@ -783,7 +790,12 @@ def team_payload(conn):
                     "element_name": r["element_name"],
                     "element_image": r["element_image"],
                 })
-        teams.append({**dict(t), "members": members})
+        d = dict(t)
+        e1_id, e1_name, e1_img = d.pop("element1_id"), d.pop("element1_name"), d.pop("element1_image")
+        e2_id, e2_name, e2_img = d.pop("element2_id"), d.pop("element2_name"), d.pop("element2_image")
+        element1 = {"id": e1_id, "name": e1_name, "image": e1_img} if e1_id is not None else None
+        element2 = {"id": e2_id, "name": e2_name, "image": e2_img} if e2_id is not None else None
+        teams.append({**d, "element1": element1, "element2": element2, "members": members})
     return teams
 
 
@@ -793,6 +805,22 @@ def api_teams():
     out = team_payload(conn)
     conn.close()
     return jsonify(out)
+
+
+def parse_element_ids(conn, body):
+    """Valida element1_id (obrigatório) e element2_id (opcional, None = Random)."""
+    e1 = body.get("element1_id")
+    e2 = body.get("element2_id")
+    if not isinstance(e1, int):
+        return None, None, jsonify(error="Selecione o elemento 1 do time."), 400
+    if e2 is not None and not isinstance(e2, int):
+        return None, None, jsonify(error="Elemento 2 inválido."), 400
+    ids = [e1] + ([e2] if e2 is not None else [])
+    marks = ",".join("?" * len(ids))
+    found = conn.execute(f"SELECT id FROM elements WHERE id IN ({marks})", ids).fetchall()
+    if len(found) != len(set(ids)):
+        return None, None, jsonify(error="Elemento inexistente."), 400
+    return e1, e2, None, None
 
 
 @app.route("/api/teams", methods=["POST"])
@@ -810,6 +838,10 @@ def api_team_create():
     if len(ids) != len(set(ids)):
         return jsonify(error="Um personagem não pode se repetir no mesmo time."), 400
     conn = get_db()
+    e1, e2, err, code = parse_element_ids(conn, body)
+    if err:
+        conn.close()
+        return err, code
     if conn.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE", (name,)).fetchone():
         conn.close()
         return jsonify(error="Já existe um time com esse nome."), 409
@@ -828,7 +860,8 @@ def api_team_create():
             conn.close()
             names = ", ".join(r["name"] for r in clash)
             return jsonify(error=f"Personagem já está em outro time: {names}."), 409
-    cur = conn.execute("INSERT INTO teams (name) VALUES (?)", (name,))
+    cur = conn.execute("INSERT INTO teams (name, element1_id, element2_id) VALUES (?, ?, ?)",
+                       (name, e1, e2))
     team_id = cur.lastrowid
     for slot, member in enumerate(members):
         conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",
@@ -856,6 +889,10 @@ def api_team_update(team_id):
     if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
         conn.close()
         abort(404)
+    e1, e2, err, code = parse_element_ids(conn, body)
+    if err:
+        conn.close()
+        return err, code
     if conn.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE AND id != ?",
                      (name, team_id)).fetchone():
         conn.close()
@@ -876,7 +913,8 @@ def api_team_update(team_id):
             conn.close()
             names = ", ".join(r["name"] for r in clash)
             return jsonify(error=f"Personagem já está em outro time: {names}."), 409
-    conn.execute("UPDATE teams SET name = ? WHERE id = ?", (name, team_id))
+    conn.execute("UPDATE teams SET name = ?, element1_id = ?, element2_id = ? WHERE id = ?",
+                 (name, e1, e2, team_id))
     conn.execute("DELETE FROM team_members WHERE team_id = ?", (team_id,))
     for slot, member in enumerate(members):
         conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",

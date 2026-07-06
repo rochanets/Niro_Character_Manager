@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS teams (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
     gradient_mode INTEGER NOT NULL DEFAULT 0,
+    element1_id   INTEGER REFERENCES elements(id),
+    element2_id   INTEGER REFERENCES elements(id),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS team_members (
@@ -118,6 +120,10 @@ def init_db():
     for col in ("role1", "role2"):
         if col not in existing:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
+    existing_teams = {row[1] for row in conn.execute("PRAGMA table_info(teams)")}
+    for col in ("element1_id", "element2_id"):
+        if col not in existing_teams:
+            conn.execute(f"ALTER TABLE teams ADD COLUMN {col} INTEGER REFERENCES elements(id)")
     if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():
         conn.executemany("INSERT INTO roles (name, description) VALUES (?, ?)", DEFAULT_ROLES)
     conn.commit()

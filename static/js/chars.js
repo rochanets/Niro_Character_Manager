@@ -1,6 +1,7 @@
 /* Módulo Chars — galeria com agrupamento em containers e ordenação */
 
 let allChars = [];
+let allParams = {};
 const activeDims = new Set();   // dimensões de filtro/agrupamento selecionadas
 let sortAlpha = false;
 let searchTerm = '';
@@ -13,8 +14,37 @@ const DIM_VALUE = {
   rarity:      (c) => (c.rarity === 5 ? '5 Estrelas' : '4 Estrelas'),
 };
 
+// Todos os valores possíveis de cada dimensão, para detectar combinações
+// que ainda não têm nenhum personagem cadastrado.
+function dimValues(dim) {
+  if (dim === 'rarity') return ['5 Estrelas', '4 Estrelas'];
+  return (allParams[dim] || []).map((p) => p.name);
+}
+
+// ---------------------------------------------------------------- persistência dos agrupamentos
+const GROUPING_KEY = 'niro:chars:grouping';
+
+function loadGroupingState() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(GROUPING_KEY)); } catch (_) { saved = null; }
+  if (!saved) return;
+  (saved.dims || []).forEach((dim) => {
+    const chip = document.querySelector(`.chip[data-dim="${dim}"]`);
+    if (chip) { activeDims.add(dim); chip.classList.add('on'); }
+  });
+  if (saved.sortAlpha) {
+    sortAlpha = true;
+    document.getElementById('sort-chip').classList.add('on');
+  }
+}
+
+function saveGroupingState() {
+  localStorage.setItem(GROUPING_KEY, JSON.stringify({ dims: [...activeDims], sortAlpha }));
+}
+
 async function load() {
-  allChars = await api('/api/characters');
+  loadGroupingState();
+  [allChars, allParams] = await Promise.all([api('/api/characters'), api('/api/params')]);
   render();
 }
 
@@ -66,7 +96,38 @@ function render() {
     <div class="group-container glass">
       <h3>${esc(key)} <span class="count">(${groups.get(key).length})</span></h3>
       <div class="char-grid">${groups.get(key).map(cardHtml).join('')}</div>
-    </div>`).join('');
+    </div>`).join('') + zeroedGroupsHtml(dims, groups);
+}
+
+// Combinações possíveis das dimensões selecionadas que ainda não têm
+// nenhum personagem — indica oportunidades de novos personagens.
+function zeroedGroupsHtml(dims, groups) {
+  let combos = [[]];
+  for (const dim of dims) {
+    const values = dimValues(dim);
+    if (!values.length) return '';
+    const next = [];
+    for (const combo of combos) {
+      for (const value of values) next.push([...combo, value]);
+    }
+    combos = next;
+  }
+
+  const zeroed = combos
+    .map((combo) => combo.join(' · '))
+    .filter((key) => !groups.has(key))
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+  if (!zeroed.length) return '';
+
+  return `
+    <div class="group-container glass zeroed-groups">
+      <h3>Agrupamentos zerados <span class="count">(${zeroed.length})</span></h3>
+      <p class="page-sub">Combinações sem nenhum personagem cadastrado — oportunidades para novos personagens.</p>
+      <div class="zeroed-list">
+        ${zeroed.map((key) => `<span class="chip zeroed-chip">${esc(key)}</span>`).join('')}
+      </div>
+    </div>`;
 }
 
 document.querySelectorAll('.chip[data-dim]').forEach((chip) => {
@@ -74,6 +135,7 @@ document.querySelectorAll('.chip[data-dim]').forEach((chip) => {
     const dim = chip.dataset.dim;
     if (activeDims.has(dim)) { activeDims.delete(dim); chip.classList.remove('on'); }
     else { activeDims.add(dim); chip.classList.add('on'); }
+    saveGroupingState();
     render();
   });
 });
@@ -81,6 +143,7 @@ document.querySelectorAll('.chip[data-dim]').forEach((chip) => {
 document.getElementById('sort-chip').addEventListener('click', function () {
   sortAlpha = !sortAlpha;
   this.classList.toggle('on', sortAlpha);
+  saveGroupingState();
   render();
 });
 

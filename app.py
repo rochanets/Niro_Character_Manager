@@ -131,11 +131,15 @@ def page_char_new():
 def page_char_detail(char_id):
     conn = get_db()
     row = conn.execute(CHAR_SELECT + " WHERE c.id = ?", (char_id,)).fetchone()
+    team = conn.execute(
+        """SELECT t.name FROM team_members tm
+           JOIN teams t ON t.id = tm.team_id
+           WHERE tm.character_id = ?""", (char_id,)).fetchone()
     conn.close()
     if not row:
         abort(404)
     return render_template("character_detail.html", active="chars",
-                           c=character_to_dict(row))
+                           c=character_to_dict(row), team_name=team["name"] if team else None)
 
 
 @app.route("/chars/<int:char_id>/edit")

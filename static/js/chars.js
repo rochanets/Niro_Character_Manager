@@ -21,7 +21,29 @@ function dimValues(dim) {
   return (allParams[dim] || []).map((p) => p.name);
 }
 
+// ---------------------------------------------------------------- persistência dos agrupamentos
+const GROUPING_KEY = 'niro:chars:grouping';
+
+function loadGroupingState() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(GROUPING_KEY)); } catch (_) { saved = null; }
+  if (!saved) return;
+  (saved.dims || []).forEach((dim) => {
+    const chip = document.querySelector(`.chip[data-dim="${dim}"]`);
+    if (chip) { activeDims.add(dim); chip.classList.add('on'); }
+  });
+  if (saved.sortAlpha) {
+    sortAlpha = true;
+    document.getElementById('sort-chip').classList.add('on');
+  }
+}
+
+function saveGroupingState() {
+  localStorage.setItem(GROUPING_KEY, JSON.stringify({ dims: [...activeDims], sortAlpha }));
+}
+
 async function load() {
+  loadGroupingState();
   [allChars, allParams] = await Promise.all([api('/api/characters'), api('/api/params')]);
   render();
 }
@@ -113,6 +135,7 @@ document.querySelectorAll('.chip[data-dim]').forEach((chip) => {
     const dim = chip.dataset.dim;
     if (activeDims.has(dim)) { activeDims.delete(dim); chip.classList.remove('on'); }
     else { activeDims.add(dim); chip.classList.add('on'); }
+    saveGroupingState();
     render();
   });
 });
@@ -120,6 +143,7 @@ document.querySelectorAll('.chip[data-dim]').forEach((chip) => {
 document.getElementById('sort-chip').addEventListener('click', function () {
   sortAlpha = !sortAlpha;
   this.classList.toggle('on', sortAlpha);
+  saveGroupingState();
   render();
 });
 

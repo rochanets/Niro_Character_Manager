@@ -29,6 +29,8 @@ PARAM_TYPES = {
     "affiliation": {"table": "affiliations", "fk": "affiliation_id", "has_image": False, "label": "Afiliação"},
     "element":     {"table": "elements",     "fk": "element_id",     "has_image": True,  "label": "Elemento"},
     "weapon":      {"table": "weapons",      "fk": "weapon_id",      "has_image": True,  "label": "Arma"},
+    "role":        {"table": "roles",        "fk": None,             "has_image": False,
+                     "has_description": True, "label": "Role"},
 }
 
 BANNER_LIMITS = {
@@ -42,19 +44,6 @@ TEXT_LIMITS = {
     "ultimate": 500, "personality": 4000, "profession": 200, "lore": 4000,
 }
 
-ROLE_OPTIONS = ["DPS", "SubDPS", "Healer", "Buffer", "DeBuffer", "Shielder", "Burst DPS", "Crowd Control"]
-
-ROLE_DESCRIPTIONS = {
-    "DPS": "principal atacante do grupo, fica em campo a maior parte do tempo; pode contar com "
-           "conversão do ataque normal (que é físico, não elemental) em ataque elemental, auto buffs, etc.",
-    "SubDPS": "dá dano pontual e sai de campo, ou causa dano fora de campo",
-    "Healer": "curandeiro, restaura a vida do time",
-    "Buffer": "concede otimizações e melhorias para todo o time",
-    "DeBuffer": "causa status negativos nos inimigos",
-    "Shielder": "invoca escudos ou barreiras fixas",
-    "Burst DPS": "causa muito dano na ultimate e sai de campo",
-    "Crowd Control": "controla o campo de batalha, prendendo, atordoando ou impedindo a ação dos inimigos",
-}
 
 
 # ---------------------------------------------------------------- helpers
@@ -74,10 +63,22 @@ def save_image(file_storage, subdir):
 def fetch_params(conn):
     out = {}
     for key, meta in PARAM_TYPES.items():
-        cols = "id, name" + (", image" if meta["has_image"] else "")
+        cols = "id, name"
+        if meta["has_image"]:
+            cols += ", image"
+        if meta.get("has_description"):
+            cols += ", description"
         rows = conn.execute(f"SELECT {cols} FROM {meta['table']} ORDER BY name COLLATE NOCASE").fetchall()
         out[key] = [dict(r) for r in rows]
     return out
+
+
+def fetch_role_names(conn):
+    return [r["name"] for r in conn.execute("SELECT name FROM roles ORDER BY name COLLATE NOCASE").fetchall()]
+
+
+def fetch_role_descriptions(conn):
+    return {r["name"]: r["description"] for r in conn.execute("SELECT name, description FROM roles").fetchall()}
 
 
 def character_to_dict(row):
@@ -119,10 +120,11 @@ def page_chars():
 def page_char_new():
     conn = get_db()
     params = fetch_params(conn)
+    roles = fetch_role_names(conn)
     conn.close()
     return render_template("character_form.html", active="chars",
                            params=params, character=None, limits=TEXT_LIMITS,
-                           roles=ROLE_OPTIONS)
+                           roles=roles)
 
 
 @app.route("/chars/<int:char_id>")
@@ -141,12 +143,13 @@ def page_char_edit(char_id):
     conn = get_db()
     row = conn.execute(CHAR_SELECT + " WHERE c.id = ?", (char_id,)).fetchone()
     params = fetch_params(conn)
+    roles = fetch_role_names(conn)
     conn.close()
     if not row:
         abort(404)
     return render_template("character_form.html", active="chars",
                            params=params, character=character_to_dict(row),
-                           limits=TEXT_LIMITS, roles=ROLE_OPTIONS)
+                           limits=TEXT_LIMITS, roles=roles)
 
 
 @app.route("/parametros")
@@ -197,14 +200,18 @@ def api_param_create(ptype):
         if not file or not file.filename:
             return jsonify(error=f"{meta['label']} precisa de uma imagem."), 400
         image = save_image(file, meta["table"])
+    description = (request.form.get("description") or "").strip() if meta.get("has_description") else None
     conn = get_db()
     try:
         if meta["has_image"]:
             cur = conn.execute(f"INSERT INTO {meta['table']} (name, image) VALUES (?, ?)", (name, image))
+        elif meta.get("has_description"):
+            cur = conn.execute(f"INSERT INTO {meta['table']} (name, description) VALUES (?, ?)",
+                               (name, description))
         else:
             cur = conn.execute(f"INSERT INTO {meta['table']} (name) VALUES (?)", (name,))
         conn.commit()
-        return jsonify(id=cur.lastrowid, name=name, image=image), 201
+        return jsonify(id=cur.lastrowid, name=name, image=image, description=description), 201
     except Exception:
         return jsonify(error=f"Já existe {meta['label']} com esse nome."), 409
     finally:
@@ -220,6 +227,7 @@ def api_param_update(ptype, item_id):
         conn.close()
         abort(404)
     name = (request.form.get("name") or row["name"]).strip()
+    old_name = row["name"]
     try:
         conn.execute(f"UPDATE {meta['table']} SET name = ? WHERE id = ?", (name, item_id))
         if meta["has_image"]:
@@ -228,6 +236,12 @@ def api_param_update(ptype, item_id):
                 delete_upload(row["image"])
                 image = save_image(file, meta["table"])
                 conn.execute(f"UPDATE {meta['table']} SET image = ? WHERE id = ?", (image, item_id))
+        if meta.get("has_description"):
+            description = (request.form.get("description") or "").strip()
+            conn.execute(f"UPDATE {meta['table']} SET description = ? WHERE id = ?", (description, item_id))
+        if ptype == "role" and name != old_name:
+            conn.execute("UPDATE characters SET role1 = ? WHERE role1 = ?", (name, old_name))
+            conn.execute("UPDATE characters SET role2 = ? WHERE role2 = ?", (name, old_name))
         conn.commit()
         return jsonify(ok=True)
     except Exception:
@@ -245,6 +259,29 @@ def api_param_delete(ptype, item_id):
     if not row:
         conn.close()
         abort(404)
+
+    if ptype == "role":
+        name = row["name"]
+        affected = conn.execute(
+            "SELECT id, name, card_promo FROM characters "
+            "WHERE (role1 = ? OR role2 = ?) AND archived = 0 ORDER BY name",
+            (name, name),
+        ).fetchall()
+        if affected and reassign_to is None:
+            conn.close()
+            return jsonify(in_use=True, characters=[dict(a) for a in affected]), 409
+        if reassign_to is not None:
+            new_role = conn.execute("SELECT name FROM roles WHERE id = ?", (reassign_to,)).fetchone()
+            if reassign_to == item_id or not new_role:
+                conn.close()
+                return jsonify(error="Opção de substituição inválida."), 400
+            conn.execute("UPDATE characters SET role1 = ? WHERE role1 = ?", (new_role["name"], name))
+            conn.execute("UPDATE characters SET role2 = ? WHERE role2 = ?", (new_role["name"], name))
+        conn.execute("DELETE FROM roles WHERE id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+        return jsonify(ok=True)
+
     affected = conn.execute(
         f"SELECT id, name, card_promo FROM characters WHERE {meta['fk']} = ? AND archived = 0 ORDER BY name",
         (item_id,),
@@ -269,7 +306,7 @@ def api_param_delete(ptype, item_id):
 
 # ---------------------------------------------------------------- API: personagens
 
-def parse_character_form(form):
+def parse_character_form(form, conn):
     data = {}
     for field in ("name", "age", "height", "dom", "normal_attack", "skill1",
                   "skill2", "ultimate", "personality", "profession", "lore"):
@@ -281,9 +318,10 @@ def parse_character_form(form):
     for field in ("region_id", "affiliation_id", "element_id", "weapon_id"):
         raw = form.get(field)
         data[field] = int(raw) if raw and raw.isdigit() else None
+    valid_roles = set(fetch_role_names(conn))
     for field in ("role1", "role2"):
         value = (form.get(field) or "").strip()
-        data[field] = value if value in ROLE_OPTIONS else ""
+        data[field] = value if value in valid_roles else ""
     data["rarity"] = int(form.get("rarity") or 0)
     return data
 
@@ -298,16 +336,19 @@ def api_characters():
 
 @app.route("/api/characters", methods=["POST"])
 def api_character_create():
-    data = parse_character_form(request.form)
+    conn = get_db()
+    data = parse_character_form(request.form, conn)
     if not data["name"]:
+        conn.close()
         return jsonify(error="Informe o nome do personagem."), 400
     if data["rarity"] not in (4, 5):
+        conn.close()
         return jsonify(error="Escolha a raridade."), 400
     card_full = request.files.get("card_full")
     card_promo = request.files.get("card_promo")
     if not card_full or not card_full.filename or not card_promo or not card_promo.filename:
+        conn.close()
         return jsonify(error="Envie o card completo e o card promo."), 400
-    conn = get_db()
     if conn.execute("SELECT 1 FROM characters WHERE name = ? COLLATE NOCASE", (data["name"],)).fetchone():
         conn.close()
         return jsonify(error="Já existe um personagem com esse nome."), 409
@@ -328,7 +369,7 @@ def api_character_update(char_id):
     if not row:
         conn.close()
         abort(404)
-    data = parse_character_form(request.form)
+    data = parse_character_form(request.form, conn)
     if not data["name"]:
         conn.close()
         return jsonify(error="Informe o nome do personagem."), 400
@@ -858,10 +899,13 @@ def api_ai_fill():
 
     extra = ""
     if field in COMBAT_FIELDS:
+        conn = get_db()
+        role_descriptions = fetch_role_descriptions(conn)
+        conn.close()
         roles = [r for r in (str(data.get("role1") or "").strip(), str(data.get("role2") or "").strip())
-                 if r in ROLE_DESCRIPTIONS]
+                 if r in role_descriptions]
         if roles:
-            role_lines = "\n".join(f"- {r}: {ROLE_DESCRIPTIONS[r]}" for r in roles)
+            role_lines = "\n".join(f"- {r}: {role_descriptions[r]}" for r in roles)
             extra += ("\n\nFunções (roles) do personagem em combate — a habilidade deve ser totalmente "
                       f"coerente com essas funções:\n{role_lines}\n"
                       "Lembre-se: neste jogo o ataque normal é ataque físico (não elemental), a menos que "

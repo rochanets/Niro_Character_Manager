@@ -5,6 +5,7 @@ const META = {
   affiliation: { label: 'Afiliação', plural: 'Afiliações', hasImage: false },
   element:     { label: 'Elemento',  plural: 'Elementos',  hasImage: true },
   weapon:      { label: 'Arma',      plural: 'Armas',      hasImage: true },
+  role:        { label: 'Role',      plural: 'Roles',      hasImage: false, hasDescription: true },
 };
 
 let currentType = 'region';
@@ -20,13 +21,17 @@ async function load() {
 function renderAdd() {
   const meta = META[currentType];
   const box = document.getElementById('param-add');
+  const namePlaceholder = meta.hasImage
+    ? (currentType === 'element' ? 'Fogo' : 'Espada')
+    : (currentType === 'region' ? 'Vale de Aur' : currentType === 'affiliation' ? 'Ordem dos Sábios' : 'Crowd Control');
   box.innerHTML = `
     <div class="row">
       <div class="field">
         <label class="field-label">Nome d${meta.label === 'Elemento' ? 'o' : 'a'} ${meta.label}</label>
-        <input type="text" id="new-name" maxlength="80" placeholder="Ex.: ${meta.hasImage ? (currentType === 'element' ? 'Fogo' : 'Espada') : (currentType === 'region' ? 'Vale de Aur' : 'Ordem dos Sábios')}">
+        <input type="text" id="new-name" maxlength="80" placeholder="Ex.: ${namePlaceholder}">
       </div>
       ${meta.hasImage ? '<div class="field"><label class="field-label">Imagem</label><div id="new-image"></div></div>' : ''}
+      ${meta.hasDescription ? '<div class="field"><label class="field-label">Descrição (usada pela IA ao gerar habilidades)</label><input type="text" id="new-description" maxlength="300" placeholder="Ex.: controla o campo de batalha, prendendo ou atordoando inimigos"></div>' : ''}
       <button class="btn primary" id="add-btn">+ Adicionar</button>
     </div>`;
   addImageInput = meta.hasImage ? createImageInput(document.getElementById('new-image')) : null;
@@ -39,6 +44,7 @@ function renderAdd() {
     const fd = new FormData();
     fd.append('name', name);
     if (addImageInput && addImageInput.file) fd.append('image', addImageInput.file);
+    if (meta.hasDescription) fd.append('description', document.getElementById('new-description').value.trim());
     try {
       await api(`/api/params/${currentType}`, { method: 'POST', body: fd });
       toast(`${META[currentType].label} adicionad${currentType === 'element' ? 'o' : 'a'}!`, 'success');
@@ -61,7 +67,7 @@ function renderList() {
   list.innerHTML = items.map((item) => `
     <div class="param-item glass" data-id="${item.id}">
       ${meta.hasImage && item.image ? `<img src="/static/${esc(item.image)}" alt="">` : ''}
-      <span class="pi-name">${esc(item.name)}</span>
+      <span class="pi-name">${esc(item.name)}${meta.hasDescription && item.description ? `<br><small style="color:var(--ink-3);font-weight:400">${esc(item.description)}</small>` : ''}</span>
       <span class="pi-actions">
         <button class="icon-btn" data-edit="${item.id}" title="Editar">&#x270E;</button>
         <button class="icon-btn danger" data-del="${item.id}" title="Excluir">&#x2715;</button>
@@ -84,6 +90,7 @@ function openEdit(id) {
       <input type="text" id="edit-name" maxlength="80" value="${esc(item.name)}">
     </div>
     ${meta.hasImage ? '<div class="field"><label class="field-label">Imagem (deixe como está para manter)</label><div id="edit-image"></div></div>' : ''}
+    ${meta.hasDescription ? `<div class="field"><label class="field-label">Descrição (usada pela IA ao gerar habilidades)</label><input type="text" id="edit-description" maxlength="300" value="${esc(item.description || '')}"></div>` : ''}
     <p style="font-size:12px;color:var(--ink-3)">A alteração será refletida em todos os personagens que usam este item.</p>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -98,6 +105,7 @@ function openEdit(id) {
     const fd = new FormData();
     fd.append('name', overlay.querySelector('#edit-name').value.trim());
     if (editImage && editImage.file) fd.append('image', editImage.file);
+    if (meta.hasDescription) fd.append('description', overlay.querySelector('#edit-description').value.trim());
     try {
       await api(`/api/params/${currentType}/${id}`, { method: 'PUT', body: fd });
       closeModal(overlay);

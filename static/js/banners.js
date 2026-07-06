@@ -8,6 +8,14 @@ async function load() {
   render();
 }
 
+const versionSeq = (major, minor) => major * 9 + minor;
+
+// quantas vezes o personagem já apareceu em banners até (e incluindo) a versão-alvo
+function appearanceCount(charId, targetSeq) {
+  return bannerData.banners.filter((b) =>
+    versionSeq(b.major, b.minor) <= targetSeq && b.characters.some((c) => c.id === charId)).length;
+}
+
 function bannerCharHtml(banner, c) {
   return `
     <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
@@ -111,9 +119,11 @@ function render() {
 }
 
 // ---------------------------------------------------------------- cadastro / edição
-function openNewBannerModal(prefill, editBanner) {
+async function openNewBannerModal(prefill, editBanner) {
   const isEdit = !!editBanner;
   const base = editBanner || prefill;
+  if (isEdit && !allChars) allChars = await api('/api/characters');
+  const editParams = isEdit ? await api('/api/params') : null;
   const majorOptions = Array.from({ length: 8 }, (_, i) => i + 1)
     .map((m) => `<option value="${m}" ${base && base.major === m ? 'selected' : ''}>${m}.x${bannerData.versions[m] ? ` — ${esc(bannerData.versions[m])}` : ''}</option>`).join('');
   const minorOptions = Array.from({ length: 9 }, (_, i) => i)
@@ -125,6 +135,11 @@ function openNewBannerModal(prefill, editBanner) {
     ['duplo', 'Duplo — 2 personagens 5★ + 3 personagens 4★'],
     ['especial', 'Especial — até 10 personagens 5★ + 5 personagens 4★'],
   ].map(([v, label]) => `<option value="${v}" ${editBanner && editBanner.type === v ? 'selected' : ''}>${label}</option>`).join('');
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
 
   const overlay = openModal(`
     <h3><span class="rune">&#x16B1;</span> ${isEdit ? 'Editar' : 'Cadastrar'} Banner</h3>
@@ -153,7 +168,23 @@ function openNewBannerModal(prefill, editBanner) {
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
       <button class="btn primary" data-save>${isEdit ? 'Salvar' : 'Cadastrar'}</button>
-    </div>`);
+    </div>
+    ${isEdit ? `
+    <label class="field-label" style="margin-top:20px">Personagens no banner</label>
+    <div class="banner-chars" id="nb-chars"></div>
+    <label class="field-label" style="margin-top:18px">Adicionar personagem</label>
+    <div class="pick-filters">
+      <input type="text" id="nb-pk-search" placeholder="Buscar nome...">
+      ${selectHtml('nb-pk-region', 'Região', editParams.region)}
+      ${selectHtml('nb-pk-affiliation', 'Afiliação', editParams.affiliation)}
+      ${selectHtml('nb-pk-element', 'Elemento', editParams.element)}
+      ${selectHtml('nb-pk-weapon', 'Arma', editParams.weapon)}
+      <select id="nb-pk-rarity"><option value="">Raridade: todas</option>
+        <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
+      </select>
+    </div>
+    <div class="pick-grid" id="nb-pk-grid"></div>
+    ` : ''}`, { wide: isEdit });
 
   const majorSel = overlay.querySelector('#nb-major');
   const nameField = overlay.querySelector('#nb-name-field');
@@ -185,6 +216,116 @@ function openNewBannerModal(prefill, editBanner) {
       await load();
     } catch (err) { toast(err.message, 'error'); }
   };
+
+  if (isEdit) initEditBannerChars(overlay, editBanner.id);
+}
+
+// ---------------------------------------------------------------- edição de personagens dentro do modal de banner
+function initEditBannerChars(overlay, bannerId) {
+  const charsEl = overlay.querySelector('#nb-chars');
+  const grid = overlay.querySelector('#nb-pk-grid');
+
+  function currentBanner() {
+    return bannerData.banners.find((b) => b.id === bannerId);
+  }
+
+  function slotsLeft(rarity) {
+    const banner = currentBanner();
+    const inBanner = banner.characters.filter((c) => c.rarity === rarity).length;
+    return bannerData.limits[banner.type][rarity] - inBanner;
+  }
+
+  function versionConflict(charId) {
+    const banner = currentBanner();
+    const targetSeq = versionSeq(banner.major, banner.minor);
+    for (const b of bannerData.banners) {
+      if (!b.characters.some((c) => c.id === charId)) continue;
+      const seq = versionSeq(b.major, b.minor);
+      if (seq === targetSeq && b.id !== bannerId) return `Já está na versão ${b.major}.${b.minor}`;
+      if (Math.abs(seq - targetSeq) === 1) return `Apareceu na versão ${b.major}.${b.minor} (precisa de 1 versão de intervalo)`;
+    }
+    return '';
+  }
+
+  function renderChars() {
+    const banner = currentBanner();
+    const five = banner.characters.filter((c) => c.rarity === 5);
+    const four = banner.characters.filter((c) => c.rarity === 4);
+    charsEl.innerHTML = banner.characters.length
+      ? [...five, ...four].map((c) => bannerCharHtml(banner, c)).join('')
+      : '<div class="empty-state" style="padding:14px">Nenhum personagem neste banner ainda.</div>';
+    charsEl.querySelectorAll('.bc-remove').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        try {
+          await api(`/api/banners/${bannerId}/characters/${btn.dataset.char}`, { method: 'DELETE' });
+          await load();
+          renderChars();
+          renderGrid();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+  }
+
+  function renderGrid() {
+    const term = overlay.querySelector('#nb-pk-search').value.trim().toLowerCase();
+    const filters = {
+      region: overlay.querySelector('#nb-pk-region').value,
+      affiliation: overlay.querySelector('#nb-pk-affiliation').value,
+      element: overlay.querySelector('#nb-pk-element').value,
+      weapon: overlay.querySelector('#nb-pk-weapon').value,
+    };
+    const rarity = overlay.querySelector('#nb-pk-rarity').value;
+    const inBannerIds = new Set(currentBanner().characters.map((c) => c.id));
+
+    const chars = allChars.filter((c) => {
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (rarity && String(c.rarity) !== rarity) return false;
+      for (const [dim, val] of Object.entries(filters)) {
+        if (val && (c[dim].name || '') !== val) return false;
+      }
+      return true;
+    });
+
+    if (!chars.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:30px">Nenhum personagem encontrado.</div>';
+      return;
+    }
+    const banner = currentBanner();
+    const targetSeq = versionSeq(banner.major, banner.minor);
+    grid.innerHTML = chars.map((c) => {
+      const already = inBannerIds.has(c.id);
+      const full = slotsLeft(c.rarity) <= 0;
+      const conflict = !already && !full ? versionConflict(c.id) : '';
+      const disabled = already || full || !!conflict;
+      const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
+      const count = appearanceCount(c.id, targetSeq);
+      return `
+        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
+          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
+          <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+          <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
+          <div class="pk-name">${esc(c.name)}</div>
+        </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.pick-card:not(.disabled)').forEach((card) =>
+      card.addEventListener('click', async () => {
+        try {
+          await api(`/api/banners/${bannerId}/characters`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ character_id: +card.dataset.char }),
+          });
+          await load();
+          renderChars();
+          renderGrid();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+  }
+
+  overlay.querySelectorAll('#nb-pk-search, #nb-pk-region, #nb-pk-affiliation, #nb-pk-element, #nb-pk-weapon, #nb-pk-rarity')
+    .forEach((el) => el.addEventListener('input', renderGrid));
+  renderChars();
+  renderGrid();
 }
 
 document.getElementById('new-banner-btn').addEventListener('click', () => openNewBannerModal());
@@ -259,7 +400,6 @@ async function openPicker(bannerId) {
     <div class="pick-grid" id="pk-grid"></div>`, { wide: true });
 
   const grid = overlay.querySelector('#pk-grid');
-  const versionSeq = (major, minor) => major * 9 + minor;
   const targetSeq = versionSeq(banner.major, banner.minor);
 
   function slotsLeft(rarity) {
@@ -311,10 +451,12 @@ async function openPicker(bannerId) {
       const conflict = !already && !full ? versionConflict(c.id) : '';
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
+      const count = appearanceCount(c.id, targetSeq);
       return `
         <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+          <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
         </div>`;
     }).join('');

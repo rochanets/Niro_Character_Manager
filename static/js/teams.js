@@ -13,6 +13,8 @@ const GRADIENT_TITLES = [
 
 let teams = null;
 let allChars = null;
+let allElements = null;
+const selectedElementFilters = new Set();
 
 // ---------------------------------------------------------------- colunas do grid
 const COLS_KEY = 'niro-team-grid-cols';
@@ -36,8 +38,35 @@ function initGridColsToggle() {
 initGridColsToggle();
 
 async function load() {
-  [teams, allChars] = await Promise.all([api('/api/teams'), api('/api/characters')]);
+  const [t, c, params] = await Promise.all([api('/api/teams'), api('/api/characters'), api('/api/params')]);
+  teams = t;
+  allChars = c;
+  allElements = params.element;
+  renderElementFilterBar();
   render();
+}
+
+// ---------------------------------------------------------------- filtro por tag de elemento
+function teamHasElement(t, elementId) {
+  return (t.element1 && t.element1.id === elementId) || (t.element2 && t.element2.id === elementId);
+}
+
+function renderElementFilterBar() {
+  const bar = document.getElementById('elem-filter-bar');
+  if (!allElements.length) { bar.innerHTML = ''; return; }
+  bar.innerHTML = allElements.map((e) => `
+    <button type="button" class="elem-filter-tag${selectedElementFilters.has(e.id) ? ' active' : ''}" data-elem="${e.id}" title="Filtrar times com ${esc(e.name)}">
+      ${e.image ? `<img src="/static/${esc(e.image)}" alt="">` : ''}
+      <span>${esc(e.name)}</span>
+    </button>`).join('');
+  bar.querySelectorAll('[data-elem]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const id = +btn.dataset.elem;
+      if (selectedElementFilters.has(id)) selectedElementFilters.delete(id);
+      else selectedElementFilters.add(id);
+      renderElementFilterBar();
+      render();
+    }));
 }
 
 function usedCharIds() {
@@ -168,8 +197,11 @@ function compositionHtml(t) {
     const img = t.element1.image ? `<img src="/static/${esc(t.element1.image)}" alt="${esc(t.element1.name)}">` : '';
     return `<div class="team-comp-tags"><span class="comp-tag mono">${img}MONO ${esc(t.element1.name.toUpperCase())}</span></div>`;
   }
-  const tag2 = t.element2 ? compTagHtml(t.element2) : '<span class="comp-tag mystery">?</span>';
-  return `<div class="team-comp-tags">${compTagHtml(t.element1)}${tag2}</div>`;
+  if (!t.element2) {
+    const img = t.element1.image ? `<img src="/static/${esc(t.element1.image)}" alt="${esc(t.element1.name)}">` : '';
+    return `<div class="team-comp-tags"><span class="comp-tag rainbow">${img}${esc(t.element1.name.toUpperCase())} RAINBOW</span></div>`;
+  }
+  return `<div class="team-comp-tags">${compTagHtml(t.element1)}${compTagHtml(t.element2)}</div>`;
 }
 
 function teamHtml(t) {
@@ -201,9 +233,17 @@ function render() {
       <button class="btn primary" onclick="document.getElementById('new-team-btn').click()">+ Cadastrar o primeiro</button></div>`;
     return;
   }
-  root.innerHTML = teams.map(teamHtml).join('');
+  const visible = selectedElementFilters.size
+    ? teams.filter((t) => [...selectedElementFilters].some((id) => teamHasElement(t, id)))
+    : teams;
+  if (!visible.length) {
+    root.innerHTML = `<div class="empty-state glass" style="grid-column:1/-1"><span class="rune">&#x16DF;</span>
+      Nenhum time com os elementos selecionados.</div>`;
+    return;
+  }
+  root.innerHTML = visible.map(teamHtml).join('');
 
-  teams.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));
+  visible.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));
 
   root.querySelectorAll('[data-grad]').forEach((btn) =>
     btn.addEventListener('click', () => cycleGradient(+btn.dataset.grad)));
@@ -553,17 +593,20 @@ async function openTeamModal(editTeam) {
 }
 
 // ---------------------------------------------------------------- combinações de elementos
+// Ordem importa: Fae + Electro é uma combinação diferente de Electro + Fae.
+// "Elemento Rainbow" (elemento fixo + slot random) também é um arquétipo padrão.
 function pairKey(id1, id2) {
-  return [id1, id2].sort((a, b) => a - b).join('-');
+  return `${id1}-${id2 === null || id2 === undefined ? 'R' : id2}`;
 }
 
 function pairLabel(a, b) {
+  if (!b) return `${a.name} Rainbow`;
   return a.id === b.id ? `Mono ${a.name}` : `${a.name} + ${b.name}`;
 }
 
 function pairImgsHtml(a, b) {
   const img = (el) => el.image ? `<img src="/static/${esc(el.image)}" alt="${esc(el.name)}">` : '';
-  return img(a) + (a.id !== b.id ? img(b) : '');
+  return img(a) + (b && a.id !== b.id ? img(b) : '');
 }
 
 async function openCombinationsModal() {
@@ -572,14 +615,15 @@ async function openCombinationsModal() {
   if (elements.length < 1) { toast('Cadastre elementos em Parâmetros primeiro.', 'error'); return; }
 
   const existing = new Set();
-  teams.forEach((t) => { if (t.element1 && t.element2) existing.add(pairKey(t.element1.id, t.element2.id)); });
+  teams.forEach((t) => { if (t.element1) existing.add(pairKey(t.element1.id, t.element2 ? t.element2.id : null)); });
 
   const pairs = [];
   for (let i = 0; i < elements.length; i++) {
-    for (let j = i; j < elements.length; j++) pairs.push([elements[i], elements[j]]);
+    for (let j = 0; j < elements.length; j++) pairs.push([elements[i], elements[j]]);
+    pairs.push([elements[i], null]);
   }
-  const missing = pairs.filter(([a, b]) => !existing.has(pairKey(a.id, b.id)));
-  const done = pairs.filter(([a, b]) => existing.has(pairKey(a.id, b.id)));
+  const missing = pairs.filter(([a, b]) => !existing.has(pairKey(a.id, b ? b.id : null)));
+  const done = pairs.filter(([a, b]) => existing.has(pairKey(a.id, b ? b.id : null)));
 
   const overlay = openModal(`
     <h3><span class="rune">&#x16DF;</span> Combinações de elementos</h3>
@@ -595,7 +639,7 @@ async function openCombinationsModal() {
   const missingEl = overlay.querySelector('#combo-missing');
   missingEl.innerHTML = missing.length
     ? missing.map(([a, b]) => `
-        <div class="combo-card" data-e1="${a.id}" data-e2="${b.id}" title="Clique para criar o time ${esc(pairLabel(a, b))}">
+        <div class="combo-card" data-e1="${a.id}" data-e2="${b ? b.id : ''}" title="Clique para criar o time ${esc(pairLabel(a, b))}">
           <div class="combo-imgs">${pairImgsHtml(a, b)}</div>
           <div class="combo-label">${esc(pairLabel(a, b))}</div>
         </div>`).join('')
@@ -613,7 +657,7 @@ async function openCombinationsModal() {
   missingEl.querySelectorAll('.combo-card').forEach((card) =>
     card.addEventListener('click', async () => {
       const a = elements.find((e) => e.id === +card.dataset.e1);
-      const b = elements.find((e) => e.id === +card.dataset.e2);
+      const b = card.dataset.e2 ? elements.find((e) => e.id === +card.dataset.e2) : null;
       const name = pairLabel(a, b);
       try {
         await api('/api/teams', {
@@ -621,7 +665,7 @@ async function openCombinationsModal() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name, members: [null, null, null, null],
-            element1_id: a.id, element2_id: b.id,
+            element1_id: a.id, element2_id: b ? b.id : null,
           }),
         });
         closeModal(overlay);

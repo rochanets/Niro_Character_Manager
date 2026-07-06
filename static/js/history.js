@@ -4,10 +4,27 @@
 let historyRows = null;
 let currentLabel = '';
 let showTable = false;
+let sortDesc = true;
+let rarityFilter = '';
+let searchTerm = '';
 
 const select = document.getElementById('banner-select');
 const area = document.getElementById('history-area');
 const tooltip = document.getElementById('viz-tooltip');
+const searchEl = document.getElementById('hist-search');
+const rarityEl = document.getElementById('hist-rarity');
+const sortToggleEl = document.getElementById('sort-toggle');
+
+function filteredSortedRows() {
+  let rows = historyRows || [];
+  if (rarityFilter) rows = rows.filter((r) => r.rarity === +rarityFilter);
+  if (searchTerm) {
+    const term = searchTerm.toLowerCase();
+    rows = rows.filter((r) => r.name.toLowerCase().includes(term));
+  }
+  return [...rows].sort((a, b) =>
+    (sortDesc ? b.gap - a.gap : a.gap - b.gap) || a.name.localeCompare(b.name));
+}
 
 async function loadOptions() {
   const data = await api('/api/history');
@@ -64,10 +81,17 @@ function renderGroup(rows, rarity, maxGap, step) {
 
 function render() {
   if (!historyRows) return;
-  const five = historyRows.filter((r) => r.rarity === 5);
-  const four = historyRows.filter((r) => r.rarity === 4);
-  const maxGap = Math.max(1, ...historyRows.map((r) => r.gap));
+  const rows = filteredSortedRows();
+  const five = rows.filter((r) => r.rarity === 5);
+  const four = rows.filter((r) => r.rarity === 4);
+  const maxGap = Math.max(1, ...rows.map((r) => r.gap));
   const step = maxGap <= 6 ? 1 : Math.ceil(maxGap / 6);
+
+  if (!rows.length) {
+    area.innerHTML = `<div class="empty-state glass"><span class="rune">&#x16D2;</span>
+      Nenhum personagem encontrado com esses filtros.</div>`;
+    return;
+  }
 
   if (showTable) {
     area.innerHTML = `
@@ -79,7 +103,7 @@ function render() {
         <table class="viz-table">
           <thead><tr><th>Personagem</th><th>Raridade</th><th>Banners ausente</th><th>Última aparição</th></tr></thead>
           <tbody>
-            ${historyRows.map((r) => `
+            ${rows.map((r) => `
               <tr>
                 <td>${esc(r.name)}</td>
                 <td><span class="cc-stars stars-${r.rarity}">${r.rarity}★</span></td>
@@ -107,7 +131,7 @@ function render() {
     </div>`;
 
   area.querySelectorAll('.bar-row').forEach((row) => {
-    const data = historyRows.find((r) => r.id === +row.dataset.id);
+    const data = rows.find((r) => r.id === +row.dataset.id);
     row.addEventListener('mousemove', (e) => {
       tooltip.style.display = 'block';
       tooltip.innerHTML = `<b>${esc(data.name)}</b> &middot; ${data.rarity}★
@@ -128,6 +152,22 @@ document.getElementById('table-toggle').addEventListener('click', function () {
   showTable = !showTable;
   this.classList.toggle('on', showTable);
   this.textContent = showTable ? 'Ver gráfico' : 'Ver tabela';
+  render();
+});
+
+sortToggleEl.addEventListener('click', function () {
+  sortDesc = !sortDesc;
+  this.textContent = sortDesc ? 'Maior → menor' : 'Menor → maior';
+  render();
+});
+
+searchEl.addEventListener('input', () => {
+  searchTerm = searchEl.value.trim();
+  render();
+});
+
+rarityEl.addEventListener('change', () => {
+  rarityFilter = rarityEl.value;
   render();
 });
 

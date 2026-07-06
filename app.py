@@ -837,6 +837,54 @@ def api_team_create():
     return jsonify(id=team_id), 201
 
 
+@app.route("/api/teams/<int:team_id>", methods=["PUT"])
+def api_team_update(team_id):
+    body = request.get_json(force=True)
+    name = (body.get("name") or "").strip()
+    members = body.get("members")
+    if not name:
+        return jsonify(error="Informe o nome do time."), 400
+    if not isinstance(members, list) or len(members) != TEAM_SIZE:
+        return jsonify(error=f"O time precisa de exatamente {TEAM_SIZE} slots."), 400
+    ids = [m for m in members if m is not None]
+    if any(not isinstance(m, int) for m in ids):
+        return jsonify(error="Personagem inválido."), 400
+    if len(ids) != len(set(ids)):
+        return jsonify(error="Um personagem não pode se repetir no mesmo time."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    if conn.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE AND id != ?",
+                     (name, team_id)).fetchone():
+        conn.close()
+        return jsonify(error="Já existe um time com esse nome."), 409
+    if ids:
+        marks = ",".join("?" * len(ids))
+        found = conn.execute(
+            f"SELECT id FROM characters WHERE id IN ({marks}) AND archived = 0", ids).fetchall()
+        if len(found) != len(ids):
+            conn.close()
+            return jsonify(error="Personagem inexistente ou arquivado."), 400
+        clash = conn.execute(
+            f"""SELECT c.name FROM team_members tm
+                JOIN characters c ON c.id = tm.character_id
+                WHERE tm.character_id IN ({marks}) AND tm.team_id != ?""",
+            ids + [team_id]).fetchall()
+        if clash:
+            conn.close()
+            names = ", ".join(r["name"] for r in clash)
+            return jsonify(error=f"Personagem já está em outro time: {names}."), 409
+    conn.execute("UPDATE teams SET name = ? WHERE id = ?", (name, team_id))
+    conn.execute("DELETE FROM team_members WHERE team_id = ?", (team_id,))
+    for slot, member in enumerate(members):
+        conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",
+                     (team_id, slot, member))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
 @app.route("/api/teams/<int:team_id>", methods=["DELETE"])
 def api_team_delete(team_id):
     conn = get_db()

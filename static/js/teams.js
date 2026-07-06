@@ -129,11 +129,11 @@ async function applyGradient(team, headEl) {
 }
 
 // ---------------------------------------------------------------- exibição
-function memberHtml(team, m) {
+function memberHtml(team, m, slot) {
   if (!m) {
     return `
       <div class="team-member">
-        <div class="tm-card mystery">?</div>
+        <div class="tm-card mystery" data-team="${team.id}" data-slot="${slot}" title="Escolher personagem para este slot">?</div>
         <div class="tm-name">???</div>
       </div>`;
   }
@@ -169,7 +169,7 @@ function teamHtml(t) {
         </div>
       </div>
       <div class="team-members">
-        ${t.members.map((m) => memberHtml(t, m)).join('')}
+        ${t.members.map((m, i) => memberHtml(t, m, i)).join('')}
       </div>
     </div>`;
 }
@@ -200,6 +200,56 @@ function render() {
         await load();
       } catch (err) { toast(err.message, 'error'); }
     }));
+  root.querySelectorAll('.tm-card.mystery').forEach((card) =>
+    card.addEventListener('click', () =>
+      openMysteryPicker(teams.find((t) => t.id === +card.dataset.team), +card.dataset.slot)));
+}
+
+// ---------------------------------------------------------------- escolha de personagem p/ slot "?"
+function openMysteryPicker(team, slot) {
+  const available = allChars.filter((c) => !usedCharIds().has(c.id));
+
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Escolher personagem — ${esc(team.name)}</h3>
+    <input type="text" id="mp-search" placeholder="Buscar nome..." style="margin-bottom:10px">
+    <div class="pick-grid" id="mp-grid"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+    </div>`, { wide: true });
+
+  const gridEl = overlay.querySelector('#mp-grid');
+  const searchEl = overlay.querySelector('#mp-search');
+
+  function renderGrid() {
+    const term = searchEl.value.trim().toLowerCase();
+    const chars = available.filter((c) => !term || c.name.toLowerCase().includes(term));
+    gridEl.innerHTML = chars.length
+      ? chars.map((c) => `
+          <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
+            <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
+            <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+            <div class="pk-name">${esc(c.name)}</div>
+          </div>`).join('')
+      : '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>';
+
+    gridEl.querySelectorAll('[data-char]').forEach((card) =>
+      card.addEventListener('click', async () => {
+        try {
+          await api(`/api/teams/${team.id}/members/${slot}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ character_id: +card.dataset.char }),
+          });
+          closeModal(overlay);
+          toast('Personagem adicionado ao time!', 'success');
+          await load();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+  }
+
+  searchEl.addEventListener('input', renderGrid);
+  renderGrid();
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
 }
 
 async function cycleGradient(teamId) {

@@ -920,6 +920,35 @@ def api_team_remove_member(team_id, char_id):
     return jsonify(ok=True)
 
 
+@app.route("/api/teams/<int:team_id>/members/<int:slot>", methods=["PUT"])
+def api_team_set_member(team_id, slot):
+    if not 0 <= slot < TEAM_SIZE:
+        abort(404)
+    body = request.get_json(force=True)
+    char_id = body.get("character_id")
+    if not isinstance(char_id, int):
+        return jsonify(error="Personagem inválido."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    if not conn.execute("SELECT 1 FROM characters WHERE id = ? AND archived = 0",
+                         (char_id,)).fetchone():
+        conn.close()
+        return jsonify(error="Personagem inexistente ou arquivado."), 400
+    clash = conn.execute(
+        """SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
+           WHERE tm.character_id = ? AND tm.team_id != ?""", (char_id, team_id)).fetchone()
+    if clash:
+        conn.close()
+        return jsonify(error=f'Personagem já está no time "{clash["name"]}".'), 409
+    conn.execute("UPDATE team_members SET character_id = ? WHERE team_id = ? AND slot = ?",
+                 (char_id, team_id, slot))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
 # ---------------------------------------------------------------- API: histórico
 
 @app.route("/api/history")

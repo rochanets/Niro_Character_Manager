@@ -14,6 +14,27 @@ const GRADIENT_TITLES = [
 let teams = null;
 let allChars = null;
 
+// ---------------------------------------------------------------- colunas do grid
+const COLS_KEY = 'niro-team-grid-cols';
+
+function applyGridCols(cols) {
+  document.getElementById('team-grid').classList.toggle('cols-4', cols === 4);
+  document.querySelectorAll('#team-cols-toggle .seg-btn').forEach((btn) =>
+    btn.classList.toggle('active', +btn.dataset.cols === cols));
+}
+
+function initGridColsToggle() {
+  const saved = +localStorage.getItem(COLS_KEY) || 2;
+  applyGridCols(saved);
+  document.querySelectorAll('#team-cols-toggle .seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const cols = +btn.dataset.cols;
+      localStorage.setItem(COLS_KEY, cols);
+      applyGridCols(cols);
+    }));
+}
+initGridColsToggle();
+
 async function load() {
   [teams, allChars] = await Promise.all([api('/api/teams'), api('/api/characters')]);
   render();
@@ -76,7 +97,7 @@ function vivid([r, g, b]) {
 
 function gradientCss(colors, mode) {
   if (!colors.length) {
-    colors = ['rgba(90, 215, 232, 0.22)', 'rgba(167, 139, 250, 0.22)'];
+    colors = ['rgba(20, 66, 168, 0.32)', 'rgba(137, 207, 244, 0.28)'];
   } else if (colors.length === 1) {
     colors = [colors[0], colors[0]];
   }

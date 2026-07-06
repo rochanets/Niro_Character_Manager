@@ -3,10 +3,14 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import socket
+import sqlite3
+import tempfile
 import threading
 import unicodedata
 import webbrowser
+import zipfile
 from datetime import datetime
 from uuid import uuid4
 
@@ -15,12 +19,12 @@ from dotenv import load_dotenv
 from flask import (Flask, Response, abort, jsonify, redirect, render_template,
                    request, send_file, stream_with_context, url_for)
 
-from db import BASE_DIR, UPLOAD_DIR, delete_upload, get_db, init_db, purge_expired_archive
+from db import BASE_DIR, DB_PATH, UPLOAD_DIR, delete_upload, get_db, init_db, purge_expired_archive
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB por request
+app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB por request (backups completos em zip)
 
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
 
@@ -305,6 +309,80 @@ def api_param_delete(ptype, item_id):
     conn.execute(f"DELETE FROM {meta['table']} WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- API: backup (exportar/importar tudo)
+
+def _db_snapshot_bytes():
+    """Copia consistente do banco (via API de backup do sqlite3), mesmo com o app em uso."""
+    fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        src = sqlite3.connect(DB_PATH)
+        dst = sqlite3.connect(tmp_path)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+        with open(tmp_path, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(tmp_path)
+
+
+@app.route("/api/export")
+def api_export():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("niro.db", _db_snapshot_bytes())
+        for root, _dirs, files in os.walk(UPLOAD_DIR):
+            for name in files:
+                full = os.path.join(root, name)
+                arcname = os.path.join("uploads", os.path.relpath(full, UPLOAD_DIR))
+                zf.write(full, arcname=arcname)
+    buf.seek(0)
+    filename = f"niro_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=filename)
+
+
+@app.route("/api/import", methods=["POST"])
+def api_import():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify(error="Envie um arquivo .zip."), 400
+    try:
+        zf = zipfile.ZipFile(file.stream)
+    except zipfile.BadZipFile:
+        return jsonify(error="Arquivo inválido: não é um .zip."), 400
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            zf.extractall(tmp_dir)
+        except Exception:
+            return jsonify(error="Não foi possível extrair o .zip."), 400
+
+        tmp_db = os.path.join(tmp_dir, "niro.db")
+        if not os.path.isfile(tmp_db):
+            return jsonify(error="ZIP inválido: niro.db não encontrado (use um backup gerado pelo próprio Niro)."), 400
+        try:
+            check = sqlite3.connect(tmp_db)
+            check.execute("SELECT 1 FROM characters LIMIT 1")
+            check.close()
+        except sqlite3.Error:
+            return jsonify(error="ZIP inválido: o banco de dados está corrompido ou não é do Niro."), 400
+
+        shutil.copyfile(tmp_db, DB_PATH)
+
+        tmp_uploads = os.path.join(tmp_dir, "uploads")
+        if os.path.isdir(UPLOAD_DIR):
+            shutil.rmtree(UPLOAD_DIR)
+        if os.path.isdir(tmp_uploads):
+            shutil.copytree(tmp_uploads, UPLOAD_DIR)
+        else:
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+    init_db()
     return jsonify(ok=True)
 
 

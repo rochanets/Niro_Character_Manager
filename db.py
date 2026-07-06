@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS weapons (
     name  TEXT NOT NULL UNIQUE COLLATE NOCASE,
     image TEXT
 );
+CREATE TABLE IF NOT EXISTS roles (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT
+);
 CREATE TABLE IF NOT EXISTS characters (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     name           TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -68,7 +73,33 @@ CREATE TABLE IF NOT EXISTS banner_characters (
     character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
     UNIQUE (banner_id, character_id)
 );
+CREATE TABLE IF NOT EXISTS teams (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    gradient_mode INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS team_members (
+    team_id      INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    slot         INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 3),
+    character_id INTEGER REFERENCES characters(id) ON DELETE CASCADE,
+    UNIQUE (team_id, slot),
+    UNIQUE (character_id)
+);
 """
+
+
+DEFAULT_ROLES = [
+    ("DPS", "principal atacante do grupo, fica em campo a maior parte do tempo; pode contar com "
+            "conversão do ataque normal (que é físico, não elemental) em ataque elemental, auto buffs, etc."),
+    ("SubDPS", "dá dano pontual e sai de campo, ou causa dano fora de campo"),
+    ("Healer", "curandeiro, restaura a vida do time"),
+    ("Buffer", "concede otimizações e melhorias para todo o time"),
+    ("DeBuffer", "causa status negativos nos inimigos"),
+    ("Shielder", "invoca escudos ou barreiras fixas"),
+    ("Burst DPS", "causa muito dano na ultimate e sai de campo"),
+    ("Crowd Control", "controla o campo de batalha, prendendo, atordoando ou impedindo a ação dos inimigos"),
+]
 
 
 def get_db():
@@ -87,6 +118,8 @@ def init_db():
     for col in ("role1", "role2"):
         if col not in existing:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
+    if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():
+        conn.executemany("INSERT INTO roles (name, description) VALUES (?, ?)", DEFAULT_ROLES)
     conn.commit()
     conn.close()
 

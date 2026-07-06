@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Times — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16DF;</span> Times</h2>
+    <p class="page-sub">Times de 4 personagens &middot; um personagem só pode estar em um time por vez</p>
+  </div>
+  <button class="btn primary" id="new-team-btn">+ Cadastrar Time</button>
+</div>
+
+<div class="team-grid" id="team-grid">
+  <div class="empty-state"><span class="rune">&#x16DF;</span>Carregando...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/teams.js') }}"></script>
+{% endblock %}

@@ -29,6 +29,8 @@ PARAM_TYPES = {
     "affiliation": {"table": "affiliations", "fk": "affiliation_id", "has_image": False, "label": "Afiliação"},
     "element":     {"table": "elements",     "fk": "element_id",     "has_image": True,  "label": "Elemento"},
     "weapon":      {"table": "weapons",      "fk": "weapon_id",      "has_image": True,  "label": "Arma"},
+    "role":        {"table": "roles",        "fk": None,             "has_image": False,
+                     "has_description": True, "label": "Role"},
 }
 
 BANNER_LIMITS = {
@@ -42,18 +44,6 @@ TEXT_LIMITS = {
     "ultimate": 500, "personality": 4000, "profession": 200, "lore": 4000,
 }
 
-ROLE_OPTIONS = ["DPS", "SubDPS", "Healer", "Buffer", "DeBuffer", "Shielder", "Burst DPS"]
-
-ROLE_DESCRIPTIONS = {
-    "DPS": "principal atacante do grupo, fica em campo a maior parte do tempo; pode contar com "
-           "conversão do ataque normal (que é físico, não elemental) em ataque elemental, auto buffs, etc.",
-    "SubDPS": "dá dano pontual e sai de campo, ou causa dano fora de campo",
-    "Healer": "curandeiro, restaura a vida do time",
-    "Buffer": "concede otimizações e melhorias para todo o time",
-    "DeBuffer": "causa status negativos nos inimigos",
-    "Shielder": "invoca escudos ou barreiras fixas",
-    "Burst DPS": "causa muito dano na ultimate e sai de campo",
-}
 
 
 # ---------------------------------------------------------------- helpers
@@ -73,10 +63,22 @@ def save_image(file_storage, subdir):
 def fetch_params(conn):
     out = {}
     for key, meta in PARAM_TYPES.items():
-        cols = "id, name" + (", image" if meta["has_image"] else "")
+        cols = "id, name"
+        if meta["has_image"]:
+            cols += ", image"
+        if meta.get("has_description"):
+            cols += ", description"
         rows = conn.execute(f"SELECT {cols} FROM {meta['table']} ORDER BY name COLLATE NOCASE").fetchall()
         out[key] = [dict(r) for r in rows]
     return out
+
+
+def fetch_role_names(conn):
+    return [r["name"] for r in conn.execute("SELECT name FROM roles ORDER BY name COLLATE NOCASE").fetchall()]
+
+
+def fetch_role_descriptions(conn):
+    return {r["name"]: r["description"] for r in conn.execute("SELECT name, description FROM roles").fetchall()}
 
 
 def character_to_dict(row):
@@ -118,10 +120,11 @@ def page_chars():
 def page_char_new():
     conn = get_db()
     params = fetch_params(conn)
+    roles = fetch_role_names(conn)
     conn.close()
     return render_template("character_form.html", active="chars",
                            params=params, character=None, limits=TEXT_LIMITS,
-                           roles=ROLE_OPTIONS)
+                           roles=roles)
 
 
 @app.route("/chars/<int:char_id>")
@@ -140,17 +143,23 @@ def page_char_edit(char_id):
     conn = get_db()
     row = conn.execute(CHAR_SELECT + " WHERE c.id = ?", (char_id,)).fetchone()
     params = fetch_params(conn)
+    roles = fetch_role_names(conn)
     conn.close()
     if not row:
         abort(404)
     return render_template("character_form.html", active="chars",
                            params=params, character=character_to_dict(row),
-                           limits=TEXT_LIMITS, roles=ROLE_OPTIONS)
+                           limits=TEXT_LIMITS, roles=roles)
 
 
 @app.route("/parametros")
 def page_params():
     return render_template("params.html", active="params")
+
+
+@app.route("/times")
+def page_teams():
+    return render_template("teams.html", active="teams")
 
 
 @app.route("/banners")
@@ -191,14 +200,18 @@ def api_param_create(ptype):
         if not file or not file.filename:
             return jsonify(error=f"{meta['label']} precisa de uma imagem."), 400
         image = save_image(file, meta["table"])
+    description = (request.form.get("description") or "").strip() if meta.get("has_description") else None
     conn = get_db()
     try:
         if meta["has_image"]:
             cur = conn.execute(f"INSERT INTO {meta['table']} (name, image) VALUES (?, ?)", (name, image))
+        elif meta.get("has_description"):
+            cur = conn.execute(f"INSERT INTO {meta['table']} (name, description) VALUES (?, ?)",
+                               (name, description))
         else:
             cur = conn.execute(f"INSERT INTO {meta['table']} (name) VALUES (?)", (name,))
         conn.commit()
-        return jsonify(id=cur.lastrowid, name=name, image=image), 201
+        return jsonify(id=cur.lastrowid, name=name, image=image, description=description), 201
     except Exception:
         return jsonify(error=f"Já existe {meta['label']} com esse nome."), 409
     finally:
@@ -214,6 +227,7 @@ def api_param_update(ptype, item_id):
         conn.close()
         abort(404)
     name = (request.form.get("name") or row["name"]).strip()
+    old_name = row["name"]
     try:
         conn.execute(f"UPDATE {meta['table']} SET name = ? WHERE id = ?", (name, item_id))
         if meta["has_image"]:
@@ -222,6 +236,12 @@ def api_param_update(ptype, item_id):
                 delete_upload(row["image"])
                 image = save_image(file, meta["table"])
                 conn.execute(f"UPDATE {meta['table']} SET image = ? WHERE id = ?", (image, item_id))
+        if meta.get("has_description"):
+            description = (request.form.get("description") or "").strip()
+            conn.execute(f"UPDATE {meta['table']} SET description = ? WHERE id = ?", (description, item_id))
+        if ptype == "role" and name != old_name:
+            conn.execute("UPDATE characters SET role1 = ? WHERE role1 = ?", (name, old_name))
+            conn.execute("UPDATE characters SET role2 = ? WHERE role2 = ?", (name, old_name))
         conn.commit()
         return jsonify(ok=True)
     except Exception:
@@ -239,6 +259,29 @@ def api_param_delete(ptype, item_id):
     if not row:
         conn.close()
         abort(404)
+
+    if ptype == "role":
+        name = row["name"]
+        affected = conn.execute(
+            "SELECT id, name, card_promo FROM characters "
+            "WHERE (role1 = ? OR role2 = ?) AND archived = 0 ORDER BY name",
+            (name, name),
+        ).fetchall()
+        if affected and reassign_to is None:
+            conn.close()
+            return jsonify(in_use=True, characters=[dict(a) for a in affected]), 409
+        if reassign_to is not None:
+            new_role = conn.execute("SELECT name FROM roles WHERE id = ?", (reassign_to,)).fetchone()
+            if reassign_to == item_id or not new_role:
+                conn.close()
+                return jsonify(error="Opção de substituição inválida."), 400
+            conn.execute("UPDATE characters SET role1 = ? WHERE role1 = ?", (new_role["name"], name))
+            conn.execute("UPDATE characters SET role2 = ? WHERE role2 = ?", (new_role["name"], name))
+        conn.execute("DELETE FROM roles WHERE id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+        return jsonify(ok=True)
+
     affected = conn.execute(
         f"SELECT id, name, card_promo FROM characters WHERE {meta['fk']} = ? AND archived = 0 ORDER BY name",
         (item_id,),
@@ -263,7 +306,7 @@ def api_param_delete(ptype, item_id):
 
 # ---------------------------------------------------------------- API: personagens
 
-def parse_character_form(form):
+def parse_character_form(form, conn):
     data = {}
     for field in ("name", "age", "height", "dom", "normal_attack", "skill1",
                   "skill2", "ultimate", "personality", "profession", "lore"):
@@ -275,9 +318,10 @@ def parse_character_form(form):
     for field in ("region_id", "affiliation_id", "element_id", "weapon_id"):
         raw = form.get(field)
         data[field] = int(raw) if raw and raw.isdigit() else None
+    valid_roles = set(fetch_role_names(conn))
     for field in ("role1", "role2"):
         value = (form.get(field) or "").strip()
-        data[field] = value if value in ROLE_OPTIONS else ""
+        data[field] = value if value in valid_roles else ""
     data["rarity"] = int(form.get("rarity") or 0)
     return data
 
@@ -292,16 +336,19 @@ def api_characters():
 
 @app.route("/api/characters", methods=["POST"])
 def api_character_create():
-    data = parse_character_form(request.form)
+    conn = get_db()
+    data = parse_character_form(request.form, conn)
     if not data["name"]:
+        conn.close()
         return jsonify(error="Informe o nome do personagem."), 400
     if data["rarity"] not in (4, 5):
+        conn.close()
         return jsonify(error="Escolha a raridade."), 400
     card_full = request.files.get("card_full")
     card_promo = request.files.get("card_promo")
     if not card_full or not card_full.filename or not card_promo or not card_promo.filename:
+        conn.close()
         return jsonify(error="Envie o card completo e o card promo."), 400
-    conn = get_db()
     if conn.execute("SELECT 1 FROM characters WHERE name = ? COLLATE NOCASE", (data["name"],)).fetchone():
         conn.close()
         return jsonify(error="Já existe um personagem com esse nome."), 409
@@ -322,7 +369,7 @@ def api_character_update(char_id):
     if not row:
         conn.close()
         abort(404)
-    data = parse_character_form(request.form)
+    data = parse_character_form(request.form, conn)
     if not data["name"]:
         conn.close()
         return jsonify(error="Informe o nome do personagem."), 400
@@ -622,6 +669,126 @@ def api_banner_remove_char(banner_id, char_id):
     return jsonify(ok=True)
 
 
+# ---------------------------------------------------------------- API: times
+
+TEAM_SIZE = 4
+GRADIENT_MODES = 5
+
+
+def team_payload(conn):
+    teams = []
+    for t in conn.execute("SELECT * FROM teams ORDER BY created_at, id"):
+        rows = conn.execute(
+            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo,
+                      e.name AS element_name, e.image AS element_image
+               FROM team_members tm
+               LEFT JOIN characters c ON c.id = tm.character_id
+               LEFT JOIN elements e   ON e.id = c.element_id
+               WHERE tm.team_id = ?""",
+            (t["id"],),
+        ).fetchall()
+        by_slot = {r["slot"]: r for r in rows}
+        members = []
+        for slot in range(TEAM_SIZE):
+            r = by_slot.get(slot)
+            if r is None or r["id"] is None:
+                members.append(None)
+            else:
+                members.append({
+                    "id": r["id"], "name": r["name"], "rarity": r["rarity"],
+                    "card_promo": r["card_promo"],
+                    "element_name": r["element_name"],
+                    "element_image": r["element_image"],
+                })
+        teams.append({**dict(t), "members": members})
+    return teams
+
+
+@app.route("/api/teams")
+def api_teams():
+    conn = get_db()
+    out = team_payload(conn)
+    conn.close()
+    return jsonify(out)
+
+
+@app.route("/api/teams", methods=["POST"])
+def api_team_create():
+    body = request.get_json(force=True)
+    name = (body.get("name") or "").strip()
+    members = body.get("members")
+    if not name:
+        return jsonify(error="Informe o nome do time."), 400
+    if not isinstance(members, list) or len(members) != TEAM_SIZE:
+        return jsonify(error=f"O time precisa de exatamente {TEAM_SIZE} slots."), 400
+    ids = [m for m in members if m is not None]
+    if any(not isinstance(m, int) for m in ids):
+        return jsonify(error="Personagem inválido."), 400
+    if len(ids) != len(set(ids)):
+        return jsonify(error="Um personagem não pode se repetir no mesmo time."), 400
+    conn = get_db()
+    if conn.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE", (name,)).fetchone():
+        conn.close()
+        return jsonify(error="Já existe um time com esse nome."), 409
+    if ids:
+        marks = ",".join("?" * len(ids))
+        found = conn.execute(
+            f"SELECT id FROM characters WHERE id IN ({marks}) AND archived = 0", ids).fetchall()
+        if len(found) != len(ids):
+            conn.close()
+            return jsonify(error="Personagem inexistente ou arquivado."), 400
+        clash = conn.execute(
+            f"""SELECT c.name FROM team_members tm
+                JOIN characters c ON c.id = tm.character_id
+                WHERE tm.character_id IN ({marks})""", ids).fetchall()
+        if clash:
+            conn.close()
+            names = ", ".join(r["name"] for r in clash)
+            return jsonify(error=f"Personagem já está em outro time: {names}."), 409
+    cur = conn.execute("INSERT INTO teams (name) VALUES (?)", (name,))
+    team_id = cur.lastrowid
+    for slot, member in enumerate(members):
+        conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",
+                     (team_id, slot, member))
+    conn.commit()
+    conn.close()
+    return jsonify(id=team_id), 201
+
+
+@app.route("/api/teams/<int:team_id>", methods=["DELETE"])
+def api_team_delete(team_id):
+    conn = get_db()
+    conn.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/gradient", methods=["PUT"])
+def api_team_gradient(team_id):
+    mode = request.get_json(force=True).get("mode")
+    if not isinstance(mode, int) or not 0 <= mode < GRADIENT_MODES:
+        return jsonify(error="Modo de gradiente inválido."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    conn.execute("UPDATE teams SET gradient_mode = ? WHERE id = ?", (mode, team_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/members/<int:char_id>", methods=["DELETE"])
+def api_team_remove_member(team_id, char_id):
+    conn = get_db()
+    conn.execute("UPDATE team_members SET character_id = NULL "
+                 "WHERE team_id = ? AND character_id = ?", (team_id, char_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
 # ---------------------------------------------------------------- API: histórico
 
 @app.route("/api/history")
@@ -672,7 +839,7 @@ def api_history():
                    current=next(o["label"] for o in options if o["id"] == banner_id))
 
 
-# ---------------------------------------------------------------- API: IA (OpenRouter)
+# ---------------------------------------------------------------- API: IA (Google AI Studio / Gemini)
 
 AI_FIELD_SPECS = {
     "normal_attack": ("Ataque Normal",
@@ -711,10 +878,10 @@ COMBAT_FIELDS = {"normal_attack", "skill1", "skill2", "ultimate"}
 
 @app.route("/api/ai_fill", methods=["POST"])
 def api_ai_fill():
-    api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    api_key = (os.environ.get("GOOGLE_AI_API_KEY") or "").strip()
     if not api_key:
-        return jsonify(error="Chave do OpenRouter não configurada. Edite o arquivo .env e "
-                             "preencha OPENROUTER_API_KEY."), 400
+        return jsonify(error="Chave do Google AI Studio não configurada. Edite o arquivo .env e "
+                             "preencha GOOGLE_AI_API_KEY."), 400
     body = request.get_json(force=True)
     field = body.get("field")
     if field not in AI_FIELD_SPECS:
@@ -732,10 +899,13 @@ def api_ai_fill():
 
     extra = ""
     if field in COMBAT_FIELDS:
+        conn = get_db()
+        role_descriptions = fetch_role_descriptions(conn)
+        conn.close()
         roles = [r for r in (str(data.get("role1") or "").strip(), str(data.get("role2") or "").strip())
-                 if r in ROLE_DESCRIPTIONS]
+                 if r in role_descriptions]
         if roles:
-            role_lines = "\n".join(f"- {r}: {ROLE_DESCRIPTIONS[r]}" for r in roles)
+            role_lines = "\n".join(f"- {r}: {role_descriptions[r]}" for r in roles)
             extra += ("\n\nFunções (roles) do personagem em combate — a habilidade deve ser totalmente "
                       f"coerente com essas funções:\n{role_lines}\n"
                       "Lembre-se: neste jogo o ataque normal é ataque físico (não elemental), a menos que "
@@ -758,30 +928,26 @@ def api_ai_fill():
         f"Tarefa: preencha o campo \"{label}\".\n{instruction}{extra}"
     )
 
-    model = os.environ.get("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
+    model = os.environ.get("GOOGLE_AI_MODEL", "gemini-flash-latest")
     payload = {
-        "model": model,
-        "stream": True,
-        "max_tokens": 3000,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": {"maxOutputTokens": 3000},
     }
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "X-goog-api-key": api_key,
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3004",
-        "X-Title": "Niro Character Manager",
     }
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:streamGenerateContent?alt=sse")
 
     def generate():
         try:
-            with requests.post("https://openrouter.ai/api/v1/chat/completions",
-                               json=payload, headers=headers, stream=True, timeout=180) as resp:
+            with requests.post(url, json=payload, headers=headers,
+                               stream=True, timeout=180) as resp:
                 if resp.status_code != 200:
                     detail = resp.text[:300]
-                    yield f"ERRO: OpenRouter retornou {resp.status_code}. {detail}"
+                    yield f"ERRO: Google AI Studio retornou {resp.status_code}. {detail}"
                     return
                 # O stream SSE vem sem charset no Content-Type e o requests assume
                 # ISO-8859-1, desconfigurando os acentos — força UTF-8.
@@ -790,16 +956,14 @@ def api_ai_fill():
                     if not line or not line.startswith("data: "):
                         continue
                     chunk = line[6:]
-                    if chunk == "[DONE]":
-                        break
                     try:
-                        delta = json.loads(chunk)["choices"][0]["delta"].get("content") or ""
+                        delta = json.loads(chunk)["candidates"][0]["content"]["parts"][0].get("text") or ""
                     except (KeyError, IndexError, json.JSONDecodeError):
                         continue
                     if delta:
                         yield delta
         except requests.RequestException as exc:
-            yield f"ERRO: falha de conexão com o OpenRouter ({exc})"
+            yield f"ERRO: falha de conexão com o Google AI Studio ({exc})"
 
     return Response(stream_with_context(generate()),
                     mimetype="text/plain; charset=utf-8",

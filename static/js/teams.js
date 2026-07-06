@@ -111,12 +111,20 @@ function gradientCss(colors, mode) {
   }
 }
 
+// cores fixas para elementos cuja cor dominante extraída do ícone fica escura/pesada demais
+const ELEMENT_COLOR_OVERRIDES = {
+  fae: 'hsl(330 75% 82% / 0.85)',   // rosa bebê, em vez do rosa escuro extraído do ícone
+};
+
 async function applyGradient(team, headEl) {
   if (!headEl) return;
-  const urls = team.members
-    .filter((m) => m && m.element_image)
-    .map((m) => `/static/${m.element_image}`);
-  const colors = (await Promise.all(urls.map(imageColor))).filter(Boolean).map(vivid);
+  const withImg = team.members.filter((m) => m && m.element_image);
+  const colors = (await Promise.all(withImg.map(async (m) => {
+    const override = ELEMENT_COLOR_OVERRIDES[(m.element_name || '').trim().toLowerCase()];
+    if (override) return override;
+    const rgb = await imageColor(`/static/${m.element_image}`);
+    return rgb ? vivid(rgb) : null;
+  }))).filter(Boolean);
   headEl.style.background = gradientCss(colors, team.gradient_mode);
 }
 
@@ -132,6 +140,10 @@ function memberHtml(team, m) {
   const elem = m.element_image
     ? `<img class="tm-elem" src="/static/${esc(m.element_image)}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`
     : '<span class="tm-elem"></span>';
+  const roles = [m.role1, m.role2].filter(Boolean);
+  const rolesHtml = roles.length
+    ? `<div class="tm-roles">${roles.map((r) => `<span class="tm-role">${esc(r)}</span>`).join('')}</div>`
+    : '';
   return `
     <div class="team-member">
       <div class="tm-card r${m.rarity}">
@@ -140,6 +152,7 @@ function memberHtml(team, m) {
       </div>
       <div class="tm-name" title="${esc(m.name)}">${esc(m.name)}</div>
       ${elem}
+      ${rolesHtml}
     </div>`;
 }
 

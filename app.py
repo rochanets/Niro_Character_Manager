@@ -761,7 +761,7 @@ def team_payload(conn):
     teams = []
     for t in conn.execute("SELECT * FROM teams ORDER BY created_at, id"):
         rows = conn.execute(
-            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo,
+            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.role1, c.role2,
                       e.name AS element_name, e.image AS element_image
                FROM team_members tm
                LEFT JOIN characters c ON c.id = tm.character_id
@@ -779,6 +779,7 @@ def team_payload(conn):
                 members.append({
                     "id": r["id"], "name": r["name"], "rarity": r["rarity"],
                     "card_promo": r["card_promo"],
+                    "role1": r["role1"], "role2": r["role2"],
                     "element_name": r["element_name"],
                     "element_image": r["element_image"],
                 })

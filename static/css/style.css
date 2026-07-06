@@ -493,6 +493,12 @@ select option.opt-star4 { color: var(--star4); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tm-elem { width: 22px; height: 22px; object-fit: contain; margin-top: 4px; display: inline-block; }
+.tm-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
+.tm-role {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.3px; line-height: 1;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--glass-strong); border: 1px solid var(--glass-border-soft); color: var(--ink-2);
+}
 .tm-remove {
   position: absolute; top: 5px; right: 5px; width: 20px; height: 20px;
   border-radius: 50%; border: none; cursor: pointer; font-size: 11px; line-height: 1;

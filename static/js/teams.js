@@ -14,6 +14,27 @@ const GRADIENT_TITLES = [
 let teams = null;
 let allChars = null;
 
+// ---------------------------------------------------------------- colunas do grid
+const COLS_KEY = 'niro-team-grid-cols';
+
+function applyGridCols(cols) {
+  document.getElementById('team-grid').classList.toggle('cols-4', cols === 4);
+  document.querySelectorAll('#team-cols-toggle .seg-btn').forEach((btn) =>
+    btn.classList.toggle('active', +btn.dataset.cols === cols));
+}
+
+function initGridColsToggle() {
+  const saved = +localStorage.getItem(COLS_KEY) || 2;
+  applyGridCols(saved);
+  document.querySelectorAll('#team-cols-toggle .seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const cols = +btn.dataset.cols;
+      localStorage.setItem(COLS_KEY, cols);
+      applyGridCols(cols);
+    }));
+}
+initGridColsToggle();
+
 async function load() {
   [teams, allChars] = await Promise.all([api('/api/teams'), api('/api/characters')]);
   render();
@@ -76,7 +97,7 @@ function vivid([r, g, b]) {
 
 function gradientCss(colors, mode) {
   if (!colors.length) {
-    colors = ['rgba(90, 215, 232, 0.22)', 'rgba(167, 139, 250, 0.22)'];
+    colors = ['rgba(20, 66, 168, 0.32)', 'rgba(137, 207, 244, 0.28)'];
   } else if (colors.length === 1) {
     colors = [colors[0], colors[0]];
   }
@@ -90,27 +111,39 @@ function gradientCss(colors, mode) {
   }
 }
 
+// cores fixas para elementos cuja cor dominante extraída do ícone fica escura/pesada demais
+const ELEMENT_COLOR_OVERRIDES = {
+  fae: 'hsl(330 75% 82% / 0.85)',   // rosa bebê, em vez do rosa escuro extraído do ícone
+};
+
 async function applyGradient(team, headEl) {
   if (!headEl) return;
-  const urls = team.members
-    .filter((m) => m && m.element_image)
-    .map((m) => `/static/${m.element_image}`);
-  const colors = (await Promise.all(urls.map(imageColor))).filter(Boolean).map(vivid);
+  const withImg = team.members.filter((m) => m && m.element_image);
+  const colors = (await Promise.all(withImg.map(async (m) => {
+    const override = ELEMENT_COLOR_OVERRIDES[(m.element_name || '').trim().toLowerCase()];
+    if (override) return override;
+    const rgb = await imageColor(`/static/${m.element_image}`);
+    return rgb ? vivid(rgb) : null;
+  }))).filter(Boolean);
   headEl.style.background = gradientCss(colors, team.gradient_mode);
 }
 
 // ---------------------------------------------------------------- exibição
-function memberHtml(team, m) {
+function memberHtml(team, m, slot) {
   if (!m) {
     return `
       <div class="team-member">
-        <div class="tm-card mystery">?</div>
+        <div class="tm-card mystery" data-team="${team.id}" data-slot="${slot}" title="Escolher personagem para este slot">?</div>
         <div class="tm-name">???</div>
       </div>`;
   }
   const elem = m.element_image
     ? `<img class="tm-elem" src="/static/${esc(m.element_image)}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`
     : '<span class="tm-elem"></span>';
+  const roles = [m.role1, m.role2].filter(Boolean);
+  const rolesHtml = roles.length
+    ? `<div class="tm-roles">${roles.map((r) => `<span class="tm-role">${esc(r)}</span>`).join('')}</div>`
+    : '';
   return `
     <div class="team-member">
       <div class="tm-card r${m.rarity}">
@@ -119,6 +152,7 @@ function memberHtml(team, m) {
       </div>
       <div class="tm-name" title="${esc(m.name)}">${esc(m.name)}</div>
       ${elem}
+      ${rolesHtml}
     </div>`;
 }
 
@@ -135,7 +169,7 @@ function teamHtml(t) {
         </div>
       </div>
       <div class="team-members">
-        ${t.members.map((m) => memberHtml(t, m)).join('')}
+        ${t.members.map((m, i) => memberHtml(t, m, i)).join('')}
       </div>
     </div>`;
 }
@@ -166,6 +200,56 @@ function render() {
         await load();
       } catch (err) { toast(err.message, 'error'); }
     }));
+  root.querySelectorAll('.tm-card.mystery').forEach((card) =>
+    card.addEventListener('click', () =>
+      openMysteryPicker(teams.find((t) => t.id === +card.dataset.team), +card.dataset.slot)));
+}
+
+// ---------------------------------------------------------------- escolha de personagem p/ slot "?"
+function openMysteryPicker(team, slot) {
+  const available = allChars.filter((c) => !usedCharIds().has(c.id));
+
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Escolher personagem — ${esc(team.name)}</h3>
+    <input type="text" id="mp-search" placeholder="Buscar nome..." style="margin-bottom:10px">
+    <div class="pick-grid" id="mp-grid"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+    </div>`, { wide: true });
+
+  const gridEl = overlay.querySelector('#mp-grid');
+  const searchEl = overlay.querySelector('#mp-search');
+
+  function renderGrid() {
+    const term = searchEl.value.trim().toLowerCase();
+    const chars = available.filter((c) => !term || c.name.toLowerCase().includes(term));
+    gridEl.innerHTML = chars.length
+      ? chars.map((c) => `
+          <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
+            <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
+            <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+            <div class="pk-name">${esc(c.name)}</div>
+          </div>`).join('')
+      : '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>';
+
+    gridEl.querySelectorAll('[data-char]').forEach((card) =>
+      card.addEventListener('click', async () => {
+        try {
+          await api(`/api/teams/${team.id}/members/${slot}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ character_id: +card.dataset.char }),
+          });
+          closeModal(overlay);
+          toast('Personagem adicionado ao time!', 'success');
+          await load();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+  }
+
+  searchEl.addEventListener('input', renderGrid);
+  renderGrid();
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
 }
 
 async function cycleGradient(teamId) {

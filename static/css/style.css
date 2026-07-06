@@ -444,13 +444,26 @@ select option.opt-star4 { color: var(--star4); }
 .banner-add-btn:hover { color: var(--accent); border-color: rgba(90, 215, 232, 0.5); background: rgba(90, 215, 232, 0.06); }
 
 /* --------- times --------- */
+.page-header-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.seg-toggle { display: flex; border: 1.5px solid var(--glass-border); border-radius: var(--radius-sm); overflow: hidden; }
+.seg-btn {
+  border: none; background: transparent; color: var(--ink-3);
+  font-size: 13px; font-weight: 600; padding: 8px 14px; cursor: pointer;
+  transition: all 0.2s ease;
+}
+.seg-btn + .seg-btn { border-left: 1.5px solid var(--glass-border); }
+.seg-btn:hover { color: var(--ink-1); background: var(--glass); }
+.seg-btn.active { color: #fff; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+
 .team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-@media (max-width: 1100px) { .team-grid { grid-template-columns: 1fr; } }
+.team-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .team-grid, .team-grid.cols-4 { grid-template-columns: 1fr; } }
+@media (min-width: 1101px) and (max-width: 1500px) { .team-grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .team-card { overflow: hidden; }
 .team-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 13px 16px;
-  background: linear-gradient(90deg, rgba(90, 215, 232, 0.22), rgba(167, 139, 250, 0.22));
+  background: linear-gradient(90deg, rgba(20, 66, 168, 0.32), rgba(137, 207, 244, 0.28));
   border-bottom: 1px solid var(--glass-border-soft);
   transition: background 0.35s ease;
 }
@@ -474,12 +487,20 @@ select option.opt-star4 { color: var(--star4); }
 .tm-card.mystery {
   background: #000; display: flex; align-items: center; justify-content: center;
   color: #fff; font-size: 46px; font-weight: 700; user-select: none;
+  cursor: pointer; transition: box-shadow 0.2s ease;
 }
+.tm-card.mystery:hover { box-shadow: 0 0 0 2px var(--accent) inset; }
 .tm-name {
   font-size: 12.5px; font-weight: 600; color: var(--ink-1); margin-top: 6px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tm-elem { width: 22px; height: 22px; object-fit: contain; margin-top: 4px; display: inline-block; }
+.tm-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
+.tm-role {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.3px; line-height: 1;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--glass-strong); border: 1px solid var(--glass-border-soft); color: var(--ink-2);
+}
 .tm-remove {
   position: absolute; top: 5px; right: 5px; width: 20px; height: 20px;
   border-radius: 50%; border: none; cursor: pointer; font-size: 11px; line-height: 1;

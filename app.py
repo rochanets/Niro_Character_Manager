@@ -761,7 +761,7 @@ def team_payload(conn):
     teams = []
     for t in conn.execute("SELECT * FROM teams ORDER BY created_at, id"):
         rows = conn.execute(
-            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo,
+            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.role1, c.role2,
                       e.name AS element_name, e.image AS element_image
                FROM team_members tm
                LEFT JOIN characters c ON c.id = tm.character_id
@@ -779,6 +779,7 @@ def team_payload(conn):
                 members.append({
                     "id": r["id"], "name": r["name"], "rarity": r["rarity"],
                     "card_promo": r["card_promo"],
+                    "role1": r["role1"], "role2": r["role2"],
                     "element_name": r["element_name"],
                     "element_image": r["element_image"],
                 })
@@ -914,6 +915,35 @@ def api_team_remove_member(team_id, char_id):
     conn = get_db()
     conn.execute("UPDATE team_members SET character_id = NULL "
                  "WHERE team_id = ? AND character_id = ?", (team_id, char_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/members/<int:slot>", methods=["PUT"])
+def api_team_set_member(team_id, slot):
+    if not 0 <= slot < TEAM_SIZE:
+        abort(404)
+    body = request.get_json(force=True)
+    char_id = body.get("character_id")
+    if not isinstance(char_id, int):
+        return jsonify(error="Personagem inválido."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    if not conn.execute("SELECT 1 FROM characters WHERE id = ? AND archived = 0",
+                         (char_id,)).fetchone():
+        conn.close()
+        return jsonify(error="Personagem inexistente ou arquivado."), 400
+    clash = conn.execute(
+        """SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
+           WHERE tm.character_id = ? AND tm.team_id != ?""", (char_id, team_id)).fetchone()
+    if clash:
+        conn.close()
+        return jsonify(error=f'Personagem já está no time "{clash["name"]}".'), 409
+    conn.execute("UPDATE team_members SET character_id = ? WHERE team_id = ? AND slot = ?",
+                 (char_id, team_id, slot))
     conn.commit()
     conn.close()
     return jsonify(ok=True)

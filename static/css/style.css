@@ -106,16 +106,26 @@ body {
 }
 .brand-sub { font-size: 10.5px; letter-spacing: 1.5px; color: var(--ink-3); text-transform: uppercase; }
 
-.sidebar-brand-text, .nav-label, .rune-divider, .sidebar-footer {
+.rune-divider, .sidebar-footer {
   white-space: nowrap;
   opacity: 1;
   transition: opacity 0.15s ease;
 }
-.sidebar:not(:hover) .sidebar-brand-text,
-.sidebar:not(:hover) .nav-label,
 .sidebar:not(:hover) .rune-divider,
 .sidebar:not(:hover) .sidebar-footer {
   opacity: 0;
+}
+
+/* recolhidos, largura vai a 0 (não só opacidade) para não desalinhar o ícone
+   nem inflar a caixa de destaque (.nav-item.active) além do espaço visível */
+.sidebar-brand-text, .nav-label {
+  white-space: nowrap; overflow: hidden;
+  max-width: 160px; opacity: 1;
+  transition: opacity 0.15s ease, max-width 0.22s ease;
+}
+.sidebar:not(:hover) .sidebar-brand-text,
+.sidebar:not(:hover) .nav-label {
+  max-width: 0; opacity: 0;
 }
 
 .rune-divider {
@@ -489,13 +499,13 @@ select option.opt-star4 { color: var(--star4); }
 }
 .banner-add-btn:hover { color: var(--accent); border-color: rgba(90, 215, 232, 0.5); background: rgba(90, 215, 232, 0.06); }
 /* 4★ em banners especiais: ilimitado, então em vez de cartas de imagem mostra
-   uma lista de nomes em bullet points, em 2 colunas */
+   uma lista de nomes em bullet points, em 3 colunas */
 .banner-four-list { margin-top: 12px; }
 .banner-four-list .b4-title {
   font-size: 11px; letter-spacing: 0.6px; font-weight: 600; color: var(--star4); margin-bottom: 6px;
 }
 .banner-four-list .b4-columns {
-  column-count: 2; column-gap: 18px; list-style: none;
+  column-count: 3; column-gap: 18px; list-style: none;
 }
 .banner-four-list .b4-columns li {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
@@ -693,6 +703,14 @@ select option.opt-star4 { color: var(--star4); }
 .pick-card[draggable="true"] { cursor: grab; }
 .pick-card.disabled { opacity: 0.32; cursor: not-allowed; }
 .pick-card.disabled:hover { transform: none; border-color: var(--glass-border-soft); }
+/* personagem nunca apareceu em um banner: leve glow azul/lilás (mesmas cores do número da versão) */
+.pick-card.pk-first-appearance {
+  border-color: rgba(167, 139, 250, 0.5);
+  box-shadow: 0 0 0 1px rgba(90, 215, 232, 0.35), 0 0 16px 2px rgba(167, 139, 250, 0.3);
+}
+.pick-card.pk-first-appearance:hover {
+  box-shadow: 0 0 0 1px rgba(90, 215, 232, 0.55), 0 0 20px 3px rgba(167, 139, 250, 0.45);
+}
 .pick-card .pk-star { position: absolute; top: 5px; right: 6px; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: rgba(0,0,0,0.6); }
 .pick-card .pk-count {
   position: absolute; bottom: 34px; right: 6px; font-size: 10px; font-weight: 700;
@@ -819,7 +837,7 @@ select option.opt-star4 { color: var(--star4); }
   .sidebar-brand, .rune-divider, .sidebar-footer { display: none; }
   .sidebar-nav { flex-direction: row; justify-content: space-around; width: 100%; }
   .nav-item, .sidebar:not(:hover) .nav-item { flex-direction: column; gap: 3px; font-size: 10px; padding: 6px 10px; justify-content: center; }
-  .nav-label, .sidebar:not(:hover) .nav-label { opacity: 1; white-space: normal; }
+  .nav-label, .sidebar:not(:hover) .nav-label { opacity: 1; white-space: normal; max-width: none; }
   .content { margin-left: 0; padding: 18px 14px 90px; }
 }
 

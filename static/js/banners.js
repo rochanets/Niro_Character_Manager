@@ -534,8 +534,9 @@ function initEditBannerChars(overlay, bannerId) {
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       const count = appearanceCount(c.id, targetSeq);
+      const firstAppearance = count === 0 ? 'pk-first-appearance' : '';
       return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
+        <div class="pick-card ${disabled ? 'disabled' : ''} ${firstAppearance}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || (count === 0 ? `${esc(c.name)} — primeira aparição em um banner` : esc(c.name))}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
@@ -709,8 +710,9 @@ async function openPicker(bannerId) {
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       const count = appearanceCount(c.id, targetSeq);
+      const firstAppearance = count === 0 ? 'pk-first-appearance' : '';
       return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
+        <div class="pick-card ${disabled ? 'disabled' : ''} ${firstAppearance}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || (count === 0 ? `${esc(c.name)} — primeira aparição em um banner` : esc(c.name))}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
@@ -739,16 +741,8 @@ async function openPicker(bannerId) {
   renderGrid();
 }
 
-// mais de 3 versões cadastradas passam da largura da tela: permite rolar
-// horizontalmente com a roda do mouse (sem precisar segurar Shift), já que
-// quando o board não cabe é a página toda que ganha a barra de rolagem
-const bannerBoard = document.getElementById('banner-board');
-bannerBoard.addEventListener('wheel', (e) => {
-  const doc = document.documentElement;
-  if (doc.scrollWidth <= doc.clientWidth) return;
-  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-  e.preventDefault();
-  doc.scrollLeft += e.deltaY;
-}, { passive: false });
+// quando o board não cabe na tela, a página toda ganha rolagem horizontal
+// nativa (barra de rolagem, Shift+roda do mouse ou gesto de trackpad); sem
+// hijack de wheel aqui para não travar a rolagem vertical normal da página
 
 load().catch((e) => toast(e.message, 'error'));

@@ -2,9 +2,11 @@
 
 let allChars = [];
 let allParams = {};
-const activeDims = new Set();   // dimensões de filtro/agrupamento selecionadas
+const activeDims = new Set();   // dimensões de agrupamento selecionadas
 let sortAlpha = false;
 let searchTerm = '';
+// filtros por valor específico, combináveis entre si (AND) — independentes do agrupamento
+const filters = { region: '', affiliation: '', element: '', weapon: '', rarity: '' };
 
 const DIM_VALUE = {
   region:      (c) => c.region.name || 'Sem região',
@@ -36,15 +38,33 @@ function loadGroupingState() {
     sortAlpha = true;
     document.getElementById('sort-chip').classList.add('on');
   }
+  if (saved.filters) Object.assign(filters, saved.filters);
 }
 
 function saveGroupingState() {
-  localStorage.setItem(GROUPING_KEY, JSON.stringify({ dims: [...activeDims], sortAlpha }));
+  localStorage.setItem(GROUPING_KEY, JSON.stringify({ dims: [...activeDims], sortAlpha, filters }));
+}
+
+// preenche as opções dos selects de filtro com os valores cadastrados em Parâmetros
+// e aplica o filtro salvo (se houver)
+function populateFilterSelects() {
+  ['region', 'affiliation', 'element', 'weapon'].forEach((dim) => {
+    const sel = document.getElementById(`f-${dim}`);
+    (allParams[dim] || []).forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+    sel.value = filters[dim];
+  });
+  document.getElementById('f-rarity').value = filters.rarity;
 }
 
 async function load() {
   loadGroupingState();
   [allChars, allParams] = await Promise.all([api('/api/characters'), api('/api/params')]);
+  populateFilterSelects();
   render();
 }
 
@@ -65,14 +85,21 @@ function cardHtml(c) {
 
 function render() {
   const area = document.getElementById('chars-area');
-  let chars = allChars.filter((c) =>
-    !searchTerm || c.name.toLowerCase().includes(searchTerm));
+  let chars = allChars.filter((c) => {
+    if (searchTerm && !c.name.toLowerCase().includes(searchTerm)) return false;
+    if (filters.region && (c.region.name || '') !== filters.region) return false;
+    if (filters.affiliation && (c.affiliation.name || '') !== filters.affiliation) return false;
+    if (filters.element && (c.element.name || '') !== filters.element) return false;
+    if (filters.weapon && (c.weapon.name || '') !== filters.weapon) return false;
+    if (filters.rarity && String(c.rarity) !== filters.rarity) return false;
+    return true;
+  });
 
   if (sortAlpha) chars = [...chars].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
   if (!chars.length) {
     area.innerHTML = `<div class="empty-state glass"><span class="rune">&#x16DE;</span>
-      Nenhum personagem ${allChars.length ? 'encontrado com essa busca' : 'cadastrado ainda'}.<br><br>
+      Nenhum personagem ${allChars.length ? 'encontrado com esses filtros' : 'cadastrado ainda'}.<br><br>
       ${allChars.length ? '' : '<a class="btn primary" href="/chars/new">+ Cadastrar o primeiro</a>'}</div>`;
     return;
   }
@@ -149,6 +176,21 @@ document.getElementById('sort-chip').addEventListener('click', function () {
 
 document.getElementById('search').addEventListener('input', function () {
   searchTerm = this.value.trim().toLowerCase();
+  render();
+});
+
+['region', 'affiliation', 'element', 'weapon', 'rarity'].forEach((dim) => {
+  document.getElementById(`f-${dim}`).addEventListener('change', function () {
+    filters[dim] = this.value;
+    saveGroupingState();
+    render();
+  });
+});
+
+document.getElementById('clear-filters').addEventListener('click', () => {
+  Object.keys(filters).forEach((dim) => { filters[dim] = ''; });
+  populateFilterSelects();
+  saveGroupingState();
   render();
 });
 

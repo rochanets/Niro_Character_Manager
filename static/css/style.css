@@ -383,7 +383,13 @@ select option.opt-star4 { color: var(--star4); }
 .param-add .image-input { min-height: 96px; width: 200px; }
 
 /* --------- banners --------- */
-.banner-board { overflow-x: auto; padding-bottom: 12px; }
+.banner-board { overflow-x: auto; padding-bottom: 16px; }
+.banner-board::-webkit-scrollbar { height: 12px; }
+.banner-board::-webkit-scrollbar-thumb {
+  background: rgba(90, 215, 232, 0.35); border-radius: 6px;
+}
+.banner-board::-webkit-scrollbar-thumb:hover { background: rgba(90, 215, 232, 0.55); }
+.banner-board::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); border-radius: 6px; }
 .banner-table { border-collapse: separate; border-spacing: 12px 12px; }
 .banner-table th { vertical-align: bottom; }
 .banner-table th .ver-head {
@@ -456,6 +462,15 @@ select option.opt-star4 { color: var(--star4); }
   transition: all 0.2s ease; align-self: stretch;
 }
 .banner-add-btn:hover { color: var(--accent); border-color: rgba(90, 215, 232, 0.5); background: rgba(90, 215, 232, 0.06); }
+.banner-special { margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(232, 160, 216, 0.3); }
+.special-add-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  margin-top: 14px; padding: 8px 10px;
+  border: 1.5px dashed rgba(232, 160, 216, 0.4); border-radius: var(--radius-sm);
+  background: transparent; color: var(--accent-3); font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0.4px; cursor: pointer; transition: all 0.2s ease;
+}
+.special-add-btn:hover { background: rgba(232, 160, 216, 0.08); border-color: rgba(232, 160, 216, 0.65); }
 
 /* --------- times --------- */
 .page-header-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -706,7 +721,7 @@ select option.opt-star4 { color: var(--star4); }
 
 /* popover de histórico por raridade (hover nas pick-cards do módulo Banners) */
 .banner-hist-popover {
-  position: fixed; z-index: 300; pointer-events: none; display: none;
+  position: fixed; z-index: 300; pointer-events: auto; display: none;
   background: rgba(15, 15, 30, 0.95); border: 1px solid var(--glass-border);
   border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(10px); width: 280px;

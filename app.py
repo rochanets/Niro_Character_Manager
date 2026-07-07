@@ -671,17 +671,21 @@ def api_banner_create():
         return jsonify(error="Versão inválida."), 400
     if not isinstance(minor, int) or not 0 <= minor <= 8:
         return jsonify(error="Subversão inválida."), 400
-    if half not in (1, 2):
-        return jsonify(error="Metade inválida."), 400
     if btype not in BANNER_LIMITS:
         return jsonify(error="Tipo de banner inválido."), 400
+    # banners especiais valem pela versão x.y inteira, não presos a uma metade,
+    # e podem ser cadastrados mesmo com as 2 metades já ocupadas
+    half = None if btype == "especial" else half
+    if btype != "especial" and half not in (1, 2):
+        return jsonify(error="Metade inválida."), 400
     conn = get_db()
     has_version = conn.execute("SELECT 1 FROM versions WHERE major = ?", (major,)).fetchone()
     if not has_version and not version_name:
         conn.close()
         return jsonify(error=f"A versão {major}.x ainda não tem nome. Informe um nome."), 400
-    if conn.execute("SELECT 1 FROM banners WHERE major = ? AND minor = ? AND half = ?",
-                    (major, minor, half)).fetchone():
+    if half is not None and conn.execute(
+            "SELECT 1 FROM banners WHERE major = ? AND minor = ? AND half = ?",
+            (major, minor, half)).fetchone():
         conn.close()
         return jsonify(error=f"Já existe um banner na versão {major}.{minor} "
                              f"({'1ª' if half == 1 else '2ª'} metade)."), 409
@@ -710,10 +714,13 @@ def api_banner_update(banner_id):
         return jsonify(error="Versão inválida."), 400
     if not isinstance(minor, int) or not 0 <= minor <= 8:
         return jsonify(error="Subversão inválida."), 400
-    if half not in (1, 2):
-        return jsonify(error="Metade inválida."), 400
     if btype not in BANNER_LIMITS:
         return jsonify(error="Tipo de banner inválido."), 400
+    # banners especiais valem pela versão x.y inteira, não presos a uma metade,
+    # e podem ser cadastrados mesmo com as 2 metades já ocupadas
+    half = None if btype == "especial" else half
+    if btype != "especial" and half not in (1, 2):
+        return jsonify(error="Metade inválida."), 400
     conn = get_db()
     banner = conn.execute("SELECT * FROM banners WHERE id = ?", (banner_id,)).fetchone()
     if not banner:
@@ -723,8 +730,9 @@ def api_banner_update(banner_id):
     if not has_version and not version_name:
         conn.close()
         return jsonify(error=f"A versão {major}.x ainda não tem nome. Informe um nome."), 400
-    if conn.execute("SELECT 1 FROM banners WHERE major = ? AND minor = ? AND half = ? AND id != ?",
-                    (major, minor, half, banner_id)).fetchone():
+    if half is not None and conn.execute(
+            "SELECT 1 FROM banners WHERE major = ? AND minor = ? AND half = ? AND id != ?",
+            (major, minor, half, banner_id)).fetchone():
         conn.close()
         return jsonify(error=f"Já existe um banner na versão {major}.{minor} "
                              f"({'1ª' if half == 1 else '2ª'} metade)."), 409

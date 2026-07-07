@@ -64,11 +64,11 @@ CREATE TABLE IF NOT EXISTS banners (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
     minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
-    half       INTEGER NOT NULL DEFAULT 1 CHECK (half IN (1, 2)),
+    half       INTEGER CHECK (half IS NULL OR half IN (1, 2)),
     type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (major, minor, half)
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_banners_half ON banners(major, minor, half) WHERE half IS NOT NULL;
 CREATE TABLE IF NOT EXISTS banner_characters (
     banner_id    INTEGER NOT NULL REFERENCES banners(id) ON DELETE CASCADE,
     character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
@@ -139,6 +139,37 @@ def _migrate_banners_half(conn):
     conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _migrate_banners_special_half(conn):
+    """Permite banners do tipo 'especial' sem 'half' definido (valem pela versão
+    x.y inteira, não presos a uma metade), soltando a UNIQUE fixa em favor de um
+    índice único parcial que só vale para banners com half definido."""
+    half_col = next((r for r in conn.execute("PRAGMA table_info(banners)") if r[1] == "half"), None)
+    if half_col is not None and half_col[3] == 0:  # notnull == 0 já está nullable
+        return
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    conn.execute("ALTER TABLE banners RENAME TO banners_old")
+    conn.execute("""
+        CREATE TABLE banners (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
+            minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
+            half       INTEGER CHECK (half IS NULL OR half IN (1, 2)),
+            type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""INSERT INTO banners (id, major, minor, half, type, created_at)
+                    SELECT id, major, minor,
+                           CASE WHEN type = 'especial' THEN NULL ELSE half END,
+                           type, created_at FROM banners_old""")
+    conn.execute("DROP TABLE banners_old")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_banners_half ON banners(major, minor, half) "
+                 "WHERE half IS NOT NULL")
+    conn.execute("PRAGMA legacy_alter_table = OFF")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
 def init_db():
     for sub in ("characters", "elements", "weapons"):
         os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
@@ -153,6 +184,7 @@ def init_db():
         if col not in existing_teams:
             conn.execute(f"ALTER TABLE teams ADD COLUMN {col} INTEGER REFERENCES elements(id)")
     _migrate_banners_half(conn)
+    _migrate_banners_special_half(conn)
     if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():
         conn.executemany("INSERT INTO roles (name, description) VALUES (?, ?)", DEFAULT_ROLES)
     conn.commit()

@@ -166,9 +166,26 @@ function isBannerFull(banner) {
   return banner.characters.length >= maxTotal;
 }
 
+// menor versão (major.minor) em que o personagem aparece em algum banner —
+// usado para saber se ESTE banner é a estreia dele (primeira vez que aparece)
+function firstAppearanceSeq(charId) {
+  let min;
+  bannerData.banners.forEach((b) => {
+    if (!b.characters.some((c) => c.id === charId)) return;
+    const seq = versionSeq(b.major, b.minor);
+    if (min === undefined || seq < min) min = seq;
+  });
+  return min;
+}
+
+function isFirstAppearance(banner, charId) {
+  return firstAppearanceSeq(charId) === versionSeq(banner.major, banner.minor);
+}
+
 function bannerCharHtml(banner, c) {
+  const first = isFirstAppearance(banner, c.id);
   return `
-    <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
+    <div class="banner-char r${c.rarity} ${first ? 'bc-first' : ''}" title="${esc(c.name)} (${c.rarity}★)${first ? ' — estreia em banner' : ''}">
       <img src="${esc(thumbUrl(c.card_promo, 220))}" alt="${esc(c.name)}">
       <div class="bc-name">${esc(c.name)}</div>
       <button class="bc-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
@@ -176,17 +193,20 @@ function bannerCharHtml(banner, c) {
 }
 
 // banners especiais têm 4★ ilimitado: em vez de cartas de imagem, lista os
-// nomes em bullet points de 2 colunas numa subseção "4 estrelas:"
+// nomes em bullet points de 3 colunas numa subseção "4 estrelas:"
 function bannerFourStarListHtml(banner, four) {
   return `
     <div class="banner-four-list">
       <div class="b4-title">4 estrelas:</div>
       <ul class="b4-columns">
-        ${four.map((c) => `
-          <li>
-            <span class="b4-name" title="${esc(c.name)}">${esc(c.name)}</span>
+        ${four.map((c) => {
+          const first = isFirstAppearance(banner, c.id);
+          return `
+          <li class="${first ? 'bc-first' : ''}">
+            <span class="b4-name" title="${esc(c.name)}${first ? ' — estreia em banner' : ''}">${esc(c.name)}</span>
             <button class="bc-remove b4-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
-          </li>`).join('')}
+          </li>`;
+        }).join('')}
       </ul>
     </div>`;
 }
@@ -534,9 +554,8 @@ function initEditBannerChars(overlay, bannerId) {
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       const count = appearanceCount(c.id, targetSeq);
-      const firstAppearance = count === 0 ? 'pk-first-appearance' : '';
       return `
-        <div class="pick-card ${disabled ? 'disabled' : ''} ${firstAppearance}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || (count === 0 ? `${esc(c.name)} — primeira aparição em um banner` : esc(c.name))}">
+        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
@@ -710,9 +729,8 @@ async function openPicker(bannerId) {
       const disabled = already || full || !!conflict;
       const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
       const count = appearanceCount(c.id, targetSeq);
-      const firstAppearance = count === 0 ? 'pk-first-appearance' : '';
       return `
-        <div class="pick-card ${disabled ? 'disabled' : ''} ${firstAppearance}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || (count === 0 ? `${esc(c.name)} — primeira aparição em um banner` : esc(c.name))}">
+        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>

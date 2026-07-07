@@ -306,6 +306,9 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 .chip.on.violet { color: var(--accent-2); border-color: rgba(167, 139, 250, 0.5); background: rgba(167, 139, 250, 0.1); }
 .toolbar input[type="text"] { width: 210px; padding: 8px 13px; }
 .toolbar .spacer { flex: 1; }
+/* filtros por valor específico (combináveis entre si via AND), separados dos
+   chips de agrupamento acima */
+.filter-bar select { width: auto; flex: 1; min-width: 150px; padding: 8px 12px; font-size: 13px; }
 
 /* --------- grid de personagens --------- */
 .char-grid {

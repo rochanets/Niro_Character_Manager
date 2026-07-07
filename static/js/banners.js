@@ -10,6 +10,9 @@ async function load() {
 
 const versionSeq = (major, minor) => major * 9 + minor;
 
+// especiais não têm metade própria: valem pela versão x.y inteira
+const halfLabelText = (half) => (half === 1 ? '1ª metade' : half === 2 ? '2ª metade' : 'versão toda');
+
 // quantas vezes o personagem já apareceu em banners até (e incluindo) a versão-alvo
 function appearanceCount(charId, targetSeq) {
   return bannerData.banners.filter((b) =>
@@ -23,13 +26,33 @@ function ensureHistPopover() {
   if (!histPopover) {
     histPopover = document.createElement('div');
     histPopover.className = 'banner-hist-popover';
+    // ao entrar no próprio popover, mantém aberto; só fecha quando o cursor sair dele
+    histPopover.addEventListener('mouseenter', () => clearTimeout(histHideTimer));
+    histPopover.addEventListener('mouseleave', hideRarityHistoryPopover);
     document.body.appendChild(histPopover);
   }
   return histPopover;
 }
 
-function hideRarityHistoryPopover() {
+let histShowTimer = null;
+let histHideTimer = null;
+
+function hideRarityHistoryPopoverNow() {
   if (histPopover) histPopover.style.display = 'none';
+}
+
+// esconde imediatamente e cancela qualquer exibição/ocultação agendada
+function hideRarityHistoryPopover() {
+  clearTimeout(histShowTimer);
+  clearTimeout(histHideTimer);
+  hideRarityHistoryPopoverNow();
+}
+
+// agenda o fechamento em breve, dando tempo do cursor entrar no próprio popover
+function scheduleHideRarityHistoryPopover() {
+  clearTimeout(histShowTimer);
+  clearTimeout(histHideTimer);
+  histHideTimer = setTimeout(hideRarityHistoryPopoverNow, 150);
 }
 
 const halfSeq = (b) => versionSeq(b.major, b.minor) * 2 + (b.half - 1);
@@ -51,7 +74,7 @@ function rarityHistoryRows(rarity, targetMajor, targetMinor, targetHalf) {
     const b = last !== undefined ? timeline[last] : null;
     return {
       id: c.id, name: c.name, rarity: c.rarity,
-      gap, last_banner: b ? `${b.major}.${b.minor} (${b.half === 1 ? '1ª' : '2ª'})` : null,
+      gap, last_banner: b ? `${b.major}.${b.minor} (${halfLabelText(b.half)})` : null,
     };
   });
   rows.sort((a, b) => b.gap - a.gap || a.name.localeCompare(b.name));
@@ -86,15 +109,23 @@ function showRarityHistoryPopover(anchorEl, charId, rarity, targetMajor, targetM
   pop.style.top = `${top}px`;
 }
 
-// liga o hover de histórico por raridade a todas as pick-cards de uma grade
+const HIST_HOVER_DELAY_MS = 2000;
+
+// liga o hover de histórico por raridade a todas as pick-cards de uma grade;
+// o popover só abre depois do cursor parado sobre o personagem por 2s
 function attachRarityHistoryHover(grid, getTargetVersion) {
   grid.querySelectorAll('.pick-card').forEach((card) => {
     const rarity = +card.dataset.rarity;
+    const charId = +card.dataset.char;
     card.addEventListener('mouseenter', () => {
+      clearTimeout(histShowTimer);
+      clearTimeout(histHideTimer);
       const target = getTargetVersion();
-      showRarityHistoryPopover(card, +card.dataset.char, rarity, target.major, target.minor, target.half);
+      histShowTimer = setTimeout(() => {
+        showRarityHistoryPopover(card, charId, rarity, target.major, target.minor, target.half);
+      }, HIST_HOVER_DELAY_MS);
     });
-    card.addEventListener('mouseleave', hideRarityHistoryPopover);
+    card.addEventListener('mouseleave', scheduleHideRarityHistoryPopover);
   });
 }
 
@@ -122,7 +153,7 @@ function render() {
   const majors = [...new Set(banners.map((b) => b.major))].sort((a, b) => a - b);
   const minors = [...new Set(banners.map((b) => b.minor))].sort((a, b) => a - b);
   const byCell = {};
-  banners.forEach((b) => { byCell[`${b.major}.${b.minor}.${b.half}`] = b; });
+  banners.forEach((b) => { if (b.half) byCell[`${b.major}.${b.minor}.${b.half}`] = b; });
 
   function halfBoxHtml(major, minor, half) {
     const banner = byCell[`${major}.${minor}.${half}`];
@@ -155,6 +186,34 @@ function render() {
       </div>`;
   }
 
+  // banners especiais valem pela versão x.y inteira (não presos a uma metade) e
+  // podem coexistir com as 2 metades já ocupadas
+  function specialsForCell(major, minor) {
+    return banners.filter((b) => b.major === major && b.minor === minor && b.type === 'especial');
+  }
+
+  function specialBoxHtml(banner) {
+    const five = banner.characters.filter((c) => c.rarity === 5);
+    const four = banner.characters.filter((c) => c.rarity === 4);
+    return `
+      <div class="banner-special">
+        <div class="banner-box">
+          <div class="bb-head">
+            <span class="banner-type especial">${BANNER_TYPE_LABEL.especial} &middot; ${banner.major}.${banner.minor} &middot; versão toda</span>
+            <div class="icon-btn-group">
+              <button class="icon-btn" data-edit-banner="${banner.id}" title="Editar banner">&#x270E;</button>
+              <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
+            </div>
+          </div>
+          <div class="banner-chars">
+            ${five.map((c) => bannerCharHtml(banner, c)).join('')}
+            ${four.map((c) => bannerCharHtml(banner, c)).join('')}
+            <button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   let html = '<table class="banner-table"><thead><tr><th></th>';
   for (const major of majors) {
     html += `<th><div class="ver-head glass">
@@ -168,10 +227,14 @@ function render() {
   for (const minor of minors) {
     html += `<tr><td class="minor-label">x.${minor}</td>`;
     for (const major of majors) {
+      const specials = specialsForCell(major, minor);
       html += `
         <td class="banner-cell glass">
           ${halfBoxHtml(major, minor, 1)}
           ${halfBoxHtml(major, minor, 2)}
+          ${specials.map((b) => specialBoxHtml(b)).join('')}
+          <button class="special-add-btn" data-add-special="${major}.${minor}"
+            title="Cadastrar banner especial (vale pela versão ${major}.${minor} inteira)">+ Especial</button>
         </td>`;
     }
     html += '</tr>';
@@ -192,6 +255,11 @@ function render() {
     btn.addEventListener('click', () => {
       const [major, minor, half] = btn.dataset.addHalf.split('.').map(Number);
       openNewBannerModal({ major, minor, half });
+    }));
+  board.querySelectorAll('[data-add-special]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [major, minor] = btn.dataset.addSpecial.split('.').map(Number);
+      openNewBannerModal({ major, minor, half: null, type: 'especial' });
     }));
   board.querySelectorAll('.bc-remove').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -217,8 +285,8 @@ async function openNewBannerModal(prefill, editBanner) {
   const typeOptions = [
     ['unitario', 'Unitário — 1 personagem 5★ + 3 personagens 4★'],
     ['duplo', 'Duplo — 2 personagens 5★ + 3 personagens 4★'],
-    ['especial', 'Especial — até 10 personagens 5★ + 5 personagens 4★'],
-  ].map(([v, label]) => `<option value="${v}" ${editBanner && editBanner.type === v ? 'selected' : ''}>${label}</option>`).join('');
+    ['especial', 'Especial — até 10 personagens 5★ + 5 personagens 4★ (vale pela versão inteira)'],
+  ].map(([v, label]) => `<option value="${v}" ${base && base.type === v ? 'selected' : ''}>${label}</option>`).join('');
 
   const selectHtml = (id, label, items) => `
     <select id="${id}"><option value="">${label}: todos</option>
@@ -237,7 +305,7 @@ async function openNewBannerModal(prefill, editBanner) {
         <select id="nb-minor">${minorOptions}</select>
       </div>
     </div>
-    <div class="field">
+    <div class="field" id="nb-half-field">
       <label class="field-label">Metade da versão</label>
       <select id="nb-half">${halfOptions}</select>
     </div>
@@ -281,17 +349,27 @@ async function openNewBannerModal(prefill, editBanner) {
   majorSel.addEventListener('change', syncName);
   syncName();
 
+  // banners especiais não são presos a uma metade (valem pela versão toda)
+  const typeSel = overlay.querySelector('#nb-type');
+  const halfField = overlay.querySelector('#nb-half-field');
+  function syncType() {
+    halfField.style.display = typeSel.value === 'especial' ? 'none' : 'block';
+  }
+  typeSel.addEventListener('change', syncType);
+  syncType();
+
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
   overlay.querySelector('[data-save]').onclick = async () => {
     try {
+      const btype = typeSel.value;
       await api(isEdit ? `/api/banners/${editBanner.id}` : '/api/banners', {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           major: +majorSel.value,
           minor: +overlay.querySelector('#nb-minor').value,
-          half: +overlay.querySelector('#nb-half').value,
-          type: overlay.querySelector('#nb-type').value,
+          half: btype === 'especial' ? null : +overlay.querySelector('#nb-half').value,
+          type: btype,
           version_name: nameInput.value.trim(),
         }),
       });
@@ -404,7 +482,12 @@ function initEditBannerChars(overlay, bannerId) {
           renderGrid();
         } catch (err) { toast(err.message, 'error'); }
       }));
-    attachRarityHistoryHover(grid, () => currentBanner());
+    // banners especiais não têm metade própria (valem pela versão toda); usa a
+    // 2ª metade como referência para incluir toda a versão no cálculo do histórico
+    attachRarityHistoryHover(grid, () => {
+      const b = currentBanner();
+      return { major: b.major, minor: b.minor, half: b.half || 2 };
+    });
   }
 
   overlay.querySelectorAll('#nb-pk-search, #nb-pk-region, #nb-pk-affiliation, #nb-pk-element, #nb-pk-weapon, #nb-pk-rarity')
@@ -442,7 +525,7 @@ async function renameVersion(major) {
 function deleteBanner(bannerId) {
   const banner = bannerData.banners.find((b) => b.id === bannerId);
   const overlay = openModal(`
-    <h3><span class="rune">&#x16DA;</span> Excluir banner ${banner.major}.${banner.minor} (${banner.half === 1 ? '1ª' : '2ª'} metade)</h3>
+    <h3><span class="rune">&#x16DA;</span> Excluir banner ${banner.major}.${banner.minor} (${halfLabelText(banner.half)})</h3>
     <p style="color:var(--ink-2)">Os personagens não serão excluídos, apenas o banner.</p>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -470,7 +553,7 @@ async function openPicker(bannerId) {
     </select>`;
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor} (${banner.half === 1 ? '1ª' : '2ª'} metade)
+    <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor} (${halfLabelText(banner.half)})
       <span style="font-size:12px;color:var(--ink-3);font-weight:400">(${BANNER_TYPE_LABEL[banner.type]})</span>
     </h3>
     <div class="pick-filters">
@@ -559,7 +642,7 @@ async function openPicker(bannerId) {
           renderGrid();
         } catch (err) { toast(err.message, 'error'); }
       }));
-    attachRarityHistoryHover(grid, () => banner);
+    attachRarityHistoryHover(grid, () => ({ major: banner.major, minor: banner.minor, half: banner.half || 2 }));
   }
 
   overlay.querySelectorAll('select, input').forEach((el) =>
@@ -567,5 +650,15 @@ async function openPicker(bannerId) {
   overlay.addEventListener('mousedown', hideRarityHistoryPopover);
   renderGrid();
 }
+
+// mais de 3 versões cadastradas passam do container: permite rolar horizontalmente
+// com a roda do mouse (sem precisar segurar Shift), já que o board tem overflow-x
+const bannerBoard = document.getElementById('banner-board');
+bannerBoard.addEventListener('wheel', (e) => {
+  if (bannerBoard.scrollWidth <= bannerBoard.clientWidth) return;
+  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+  e.preventDefault();
+  bannerBoard.scrollLeft += e.deltaY;
+}, { passive: false });
 
 load().catch((e) => toast(e.message, 'error'));

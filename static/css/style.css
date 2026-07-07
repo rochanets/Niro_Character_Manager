@@ -31,13 +31,18 @@
   --radius: 16px;
   --radius-sm: 10px;
   --sidebar-w: 232px;
+  --sidebar-w-collapsed: 68px;
 
   --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { color-scheme: dark; }
+html { color-scheme: dark; overflow-x: auto; }
+html::-webkit-scrollbar { height: 12px; }
+html::-webkit-scrollbar-thumb { background: rgba(90, 215, 232, 0.35); border-radius: 6px; }
+html::-webkit-scrollbar-thumb:hover { background: rgba(90, 215, 232, 0.55); }
+html::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); border-radius: 6px; }
 
 body {
   font-family: var(--font);
@@ -72,14 +77,23 @@ body {
 }
 
 /* --------- sidebar --------- */
+/* recolhida por padrão (só ícones); expande ao passar o mouse, sem empurrar o conteúdo */
 .sidebar {
   position: fixed; top: 12px; left: 12px; bottom: 12px;
-  width: var(--sidebar-w);
+  width: var(--sidebar-w-collapsed);
   display: flex; flex-direction: column;
+  padding: 22px 10px;
+  z-index: 40;
+  overflow: hidden;
+  transition: width 0.22s ease, padding 0.22s ease, box-shadow 0.22s ease;
+}
+.sidebar:hover {
+  width: var(--sidebar-w);
   padding: 22px 14px;
-  z-index: 20;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 .sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 4px; }
+.sidebar:not(:hover) .sidebar-brand { justify-content: center; gap: 0; padding: 0 0 4px; }
 .brand-rune {
   font-size: 30px; line-height: 1;
   color: var(--accent);
@@ -91,6 +105,18 @@ body {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .brand-sub { font-size: 10.5px; letter-spacing: 1.5px; color: var(--ink-3); text-transform: uppercase; }
+
+.sidebar-brand-text, .nav-label, .rune-divider, .sidebar-footer {
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+.sidebar:not(:hover) .sidebar-brand-text,
+.sidebar:not(:hover) .nav-label,
+.sidebar:not(:hover) .rune-divider,
+.sidebar:not(:hover) .sidebar-footer {
+  opacity: 0;
+}
 
 .rune-divider {
   text-align: center; color: var(--ink-3); opacity: 0.55;
@@ -104,9 +130,11 @@ body {
   padding: 11px 14px; border-radius: var(--radius-sm);
   color: var(--ink-2); text-decoration: none; font-size: 14.5px; font-weight: 500;
   border: 1px solid transparent;
+  white-space: nowrap;
   transition: all 0.2s ease;
 }
-.nav-item svg { width: 19px; height: 19px; fill: currentColor; opacity: 0.85; }
+.sidebar:not(:hover) .nav-item { justify-content: center; padding: 11px 8px; gap: 0; }
+.nav-item svg { width: 19px; height: 19px; fill: currentColor; opacity: 0.85; flex-shrink: 0; }
 .nav-item:hover { background: var(--glass); color: var(--ink-1); }
 .nav-item.active {
   background: linear-gradient(90deg, rgba(90, 215, 232, 0.13), rgba(167, 139, 250, 0.10));
@@ -118,7 +146,7 @@ body {
 
 /* --------- conteúdo --------- */
 .content {
-  flex: 1; margin-left: calc(var(--sidebar-w) + 24px);
+  flex: 1; margin-left: calc(var(--sidebar-w-collapsed) + 24px);
   padding: 28px 28px 60px; position: relative; z-index: 1;
   min-width: 0;
 }
@@ -383,13 +411,8 @@ select option.opt-star4 { color: var(--star4); }
 .param-add .image-input { min-height: 96px; width: 200px; }
 
 /* --------- banners --------- */
-.banner-board { overflow-x: auto; padding-bottom: 16px; }
-.banner-board::-webkit-scrollbar { height: 12px; }
-.banner-board::-webkit-scrollbar-thumb {
-  background: rgba(90, 215, 232, 0.35); border-radius: 6px;
-}
-.banner-board::-webkit-scrollbar-thumb:hover { background: rgba(90, 215, 232, 0.55); }
-.banner-board::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); border-radius: 6px; }
+/* sem rolagem própria: se o board não couber, a página toda rola na horizontal (ver overflow-x no html) */
+.banner-board { padding-bottom: 16px; }
 .banner-table { border-collapse: separate; border-spacing: 12px 12px; }
 .banner-table th { vertical-align: bottom; }
 .banner-table th .ver-head {
@@ -435,7 +458,10 @@ select option.opt-star4 { color: var(--star4); }
 .banner-type.duplo { color: var(--accent); border: 1px solid rgba(90, 215, 232, 0.4); background: rgba(90, 215, 232, 0.08); }
 .banner-type.especial { color: var(--accent-3); border: 1px solid rgba(232, 160, 216, 0.4); background: rgba(232, 160, 216, 0.08); }
 .banner-chars { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.banner-char { position: relative; text-align: center; }
+/* banners unitário/duplo nunca quebram linha (a página rola na horizontal se faltar espaço);
+   banners especiais podem ter muitos personagens e continuam quebrando linha normalmente */
+#banner-board .banner-half .banner-chars { flex-wrap: nowrap; }
+.banner-char { position: relative; text-align: center; flex-shrink: 0; }
 .banner-char img {
   width: var(--bc-size, 92px); aspect-ratio: 3 / 4; object-fit: cover;
   border-radius: 9px; display: block;
@@ -459,9 +485,33 @@ select option.opt-star4 { color: var(--star4); }
   width: 48px; aspect-ratio: 3 / 4; border-radius: 9px;
   border: 1.5px dashed var(--glass-border); background: transparent;
   color: var(--ink-3); font-size: 20px; cursor: pointer;
-  transition: all 0.2s ease; align-self: stretch;
+  transition: all 0.2s ease; align-self: stretch; flex-shrink: 0;
 }
 .banner-add-btn:hover { color: var(--accent); border-color: rgba(90, 215, 232, 0.5); background: rgba(90, 215, 232, 0.06); }
+/* 4★ em banners especiais: ilimitado, então em vez de cartas de imagem mostra
+   uma lista de nomes em bullet points, em 2 colunas */
+.banner-four-list { margin-top: 12px; }
+.banner-four-list .b4-title {
+  font-size: 11px; letter-spacing: 0.6px; font-weight: 600; color: var(--star4); margin-bottom: 6px;
+}
+.banner-four-list .b4-columns {
+  column-count: 2; column-gap: 18px; list-style: none;
+}
+.banner-four-list .b4-columns li {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  break-inside: avoid; padding: 3px 0;
+}
+.banner-four-list .b4-columns li::before {
+  content: "•"; color: var(--star4); margin-right: 6px;
+}
+.banner-four-list .b4-name {
+  font-size: 12.5px; color: var(--ink-2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.banner-four-list .bc-remove.b4-remove {
+  position: static; display: none; flex-shrink: 0;
+  width: 16px; height: 16px; font-size: 9px;
+}
+.banner-four-list li:hover .bc-remove.b4-remove { display: flex; }
 .banner-special { margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(232, 160, 216, 0.3); }
 .special-add-btn {
   display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
@@ -765,10 +815,11 @@ select option.opt-star4 { color: var(--star4); }
 
 /* --------- responsivo --------- */
 @media (max-width: 760px) {
-  .sidebar { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; height: 64px; flex-direction: row; align-items: center; padding: 6px 10px; border-radius: 16px 16px 0 0; }
+  .sidebar, .sidebar:hover { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; height: 64px; flex-direction: row; align-items: center; padding: 6px 10px; border-radius: 16px 16px 0 0; box-shadow: none; }
   .sidebar-brand, .rune-divider, .sidebar-footer { display: none; }
   .sidebar-nav { flex-direction: row; justify-content: space-around; width: 100%; }
-  .nav-item { flex-direction: column; gap: 3px; font-size: 10px; padding: 6px 10px; }
+  .nav-item, .sidebar:not(:hover) .nav-item { flex-direction: column; gap: 3px; font-size: 10px; padding: 6px 10px; justify-content: center; }
+  .nav-label, .sidebar:not(:hover) .nav-label { opacity: 1; white-space: normal; }
   .content { margin-left: 0; padding: 18px 14px 90px; }
 }
 

@@ -55,23 +55,36 @@ function scheduleHideRarityHistoryPopover() {
   histHideTimer = setTimeout(hideRarityHistoryPopoverNow, 150);
 }
 
-const halfSeq = (b) => versionSeq(b.major, b.minor) * 2 + (b.half - 1);
-
-// histórico de aparições dos personagens da mesma raridade, até a versão/metade alvo
-function rarityHistoryRows(rarity, targetMajor, targetMinor, targetHalf) {
-  const targetKey = halfSeq({ major: targetMajor, minor: targetMinor, half: targetHalf });
-  const timeline = bannerData.banners
-    .filter((b) => b.characters.length > 0)
-    .sort((a, b) => halfSeq(a) - halfSeq(b));
-  const currentIdx = timeline.filter((b) => halfSeq(b) < targetKey).length;
+// linha do tempo de versões (major.minor) que têm ao menos um banner com personagens;
+// a contagem de "tempo sem aparecer" é por versão, não por metade (1ª/2ª metade da
+// mesma versão contam como o mesmo ponto da linha do tempo)
+function versionTimeline(targetMajor, targetMinor) {
+  const targetKey = versionSeq(targetMajor, targetMinor);
+  const versions = [...new Set(
+    bannerData.banners.filter((b) => b.characters.length > 0).map((b) => versionSeq(b.major, b.minor)),
+  )].sort((a, b) => a - b);
+  const currentIdx = versions.filter((v) => v < targetKey).length;
+  // último banner (qualquer metade) em que cada personagem apareceu, até a versão alvo
   const lastIdx = {};
-  timeline.forEach((b, i) => {
-    if (halfSeq(b) <= targetKey) b.characters.forEach((c) => { lastIdx[c.id] = i; });
+  const lastBanner = {};
+  bannerData.banners.forEach((b) => {
+    const seq = versionSeq(b.major, b.minor);
+    if (seq > targetKey || !b.characters.length) return;
+    const idx = versions.indexOf(seq);
+    b.characters.forEach((c) => {
+      if (lastIdx[c.id] === undefined || idx > lastIdx[c.id]) { lastIdx[c.id] = idx; lastBanner[c.id] = b; }
+    });
   });
+  return { currentIdx, lastIdx, lastBanner };
+}
+
+// histórico de aparições dos personagens da mesma raridade, até a versão alvo
+function rarityHistoryRows(rarity, targetMajor, targetMinor) {
+  const { currentIdx, lastIdx, lastBanner } = versionTimeline(targetMajor, targetMinor);
   const rows = allChars.filter((c) => c.rarity === rarity).map((c) => {
     const last = lastIdx[c.id];
     const gap = last === undefined ? currentIdx + 1 : currentIdx - last;
-    const b = last !== undefined ? timeline[last] : null;
+    const b = lastBanner[c.id] || null;
     return {
       id: c.id, name: c.name, rarity: c.rarity,
       gap, last_banner: b ? `${b.major}.${b.minor} (${halfLabelText(b.half)})` : null,
@@ -81,9 +94,22 @@ function rarityHistoryRows(rarity, targetMajor, targetMinor, targetHalf) {
   return rows;
 }
 
+// mapa charId -> quantidade de versões publicadas desde a última aparição do
+// personagem até a versão alvo; usado para ordenar quem está há mais tempo sem
+// aparecer primeiro nas listas de seleção
+function appearanceGapMap(targetMajor, targetMinor) {
+  const { currentIdx, lastIdx } = versionTimeline(targetMajor, targetMinor);
+  const gaps = {};
+  allChars.forEach((c) => {
+    const last = lastIdx[c.id];
+    gaps[c.id] = last === undefined ? currentIdx + 1 : currentIdx - last;
+  });
+  return gaps;
+}
+
 function showRarityHistoryPopover(anchorEl, charId, rarity, targetMajor, targetMinor, targetHalf) {
   const pop = ensureHistPopover();
-  const rows = rarityHistoryRows(rarity, targetMajor, targetMinor, targetHalf);
+  const rows = rarityHistoryRows(rarity, targetMajor, targetMinor);
   const maxGap = Math.max(1, ...rows.map((r) => r.gap));
   const halfLabel = targetHalf === 1 ? '1ª' : '2ª';
   pop.innerHTML = `
@@ -131,12 +157,60 @@ function attachRarityHistoryHover(grid, getTargetVersion) {
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideRarityHistoryPopover(); });
 
+// true quando o banner já atingiu o limite total de personagens do seu tipo
+// (raridades com limite ilimitado — ex.: 4★ em banners especiais — nunca ficam cheias)
+function isBannerFull(banner) {
+  const limits = bannerData.limits[banner.type];
+  if (limits[5] == null || limits[4] == null) return false;
+  const maxTotal = limits[5] + limits[4];
+  return banner.characters.length >= maxTotal;
+}
+
 function bannerCharHtml(banner, c) {
   return `
     <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
       <img src="${esc(thumbUrl(c.card_promo, 220))}" alt="${esc(c.name)}">
       <div class="bc-name">${esc(c.name)}</div>
       <button class="bc-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
+    </div>`;
+}
+
+// banners especiais têm 4★ ilimitado: em vez de cartas de imagem, lista os
+// nomes em bullet points de 2 colunas numa subseção "4 estrelas:"
+function bannerFourStarListHtml(banner, four) {
+  return `
+    <div class="banner-four-list">
+      <div class="b4-title">4 estrelas:</div>
+      <ul class="b4-columns">
+        ${four.map((c) => `
+          <li>
+            <span class="b4-name" title="${esc(c.name)}">${esc(c.name)}</span>
+            <button class="bc-remove b4-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
+          </li>`).join('')}
+      </ul>
+    </div>`;
+}
+
+// monta a área de personagens de um banner; especiais mostram 4★ como lista de
+// nomes (ilimitado), os demais tipos mostram cartas de imagem para as 2 raridades
+function charsSectionHtml(banner, { withAddBtn }) {
+  const five = banner.characters.filter((c) => c.rarity === 5);
+  const four = banner.characters.filter((c) => c.rarity === 4);
+  const addBtn = withAddBtn && !isBannerFull(banner)
+    ? `<button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>` : '';
+  if (banner.type === 'especial') {
+    return `
+      <div class="banner-chars">
+        ${five.map((c) => bannerCharHtml(banner, c)).join('')}
+        ${addBtn}
+      </div>
+      ${four.length ? bannerFourStarListHtml(banner, four) : ''}`;
+  }
+  return `
+    <div class="banner-chars">
+      ${five.map((c) => bannerCharHtml(banner, c)).join('')}
+      ${four.map((c) => bannerCharHtml(banner, c)).join('')}
+      ${addBtn}
     </div>`;
 }
 
@@ -165,8 +239,6 @@ function render() {
           <button class="half-add-btn" data-add-half="${major}.${minor}.${half}" title="Cadastrar banner (${halfLabel})">+</button>
         </div>`;
     }
-    const five = banner.characters.filter((c) => c.rarity === 5);
-    const four = banner.characters.filter((c) => c.rarity === 4);
     return `
       <div class="banner-half">
         <div class="banner-box">
@@ -177,11 +249,7 @@ function render() {
               <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
             </div>
           </div>
-          <div class="banner-chars">
-            ${five.map((c) => bannerCharHtml(banner, c)).join('')}
-            ${four.map((c) => bannerCharHtml(banner, c)).join('')}
-            <button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>
-          </div>
+          ${charsSectionHtml(banner, { withAddBtn: true })}
         </div>
       </div>`;
   }
@@ -193,8 +261,6 @@ function render() {
   }
 
   function specialBoxHtml(banner) {
-    const five = banner.characters.filter((c) => c.rarity === 5);
-    const four = banner.characters.filter((c) => c.rarity === 4);
     return `
       <div class="banner-special">
         <div class="banner-box">
@@ -205,11 +271,7 @@ function render() {
               <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
             </div>
           </div>
-          <div class="banner-chars">
-            ${five.map((c) => bannerCharHtml(banner, c)).join('')}
-            ${four.map((c) => bannerCharHtml(banner, c)).join('')}
-            <button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>
-          </div>
+          ${charsSectionHtml(banner, { withAddBtn: true })}
         </div>
       </div>`;
   }
@@ -285,7 +347,7 @@ async function openNewBannerModal(prefill, editBanner) {
   const typeOptions = [
     ['unitario', 'Unitário — 1 personagem 5★ + 3 personagens 4★'],
     ['duplo', 'Duplo — 2 personagens 5★ + 3 personagens 4★'],
-    ['especial', 'Especial — até 10 personagens 5★ + 5 personagens 4★ (vale pela versão inteira)'],
+    ['especial', 'Especial — até 10 personagens 5★ + 4★ ilimitado (vale pela versão inteira)'],
   ].map(([v, label]) => `<option value="${v}" ${base && base.type === v ? 'selected' : ''}>${label}</option>`).join('');
 
   const selectHtml = (id, label, items) => `
@@ -323,7 +385,7 @@ async function openNewBannerModal(prefill, editBanner) {
     </div>
     ${isEdit ? `
     <label class="field-label" style="margin-top:20px">Personagens no banner</label>
-    <div class="banner-chars" id="nb-chars"></div>
+    <div id="nb-chars"></div>
     <label class="field-label" style="margin-top:18px">Adicionar personagem</label>
     <div class="pick-filters">
       <input type="text" id="nb-pk-search" placeholder="Buscar nome...">
@@ -334,6 +396,7 @@ async function openNewBannerModal(prefill, editBanner) {
       <select id="nb-pk-rarity"><option value="">Raridade: todas</option>
         <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
       </select>
+      <button type="button" class="btn small" id="nb-pk-sort" title="Ordenar por quem está há mais tempo sem aparecer em banners">&#x21C5; Mais tempo sem aparecer</button>
     </div>
     <div class="pick-grid" id="nb-pk-grid"></div>
     ` : ''}`, { wide: isEdit });
@@ -386,6 +449,13 @@ async function openNewBannerModal(prefill, editBanner) {
 function initEditBannerChars(overlay, bannerId) {
   const charsEl = overlay.querySelector('#nb-chars');
   const grid = overlay.querySelector('#nb-pk-grid');
+  let sortByWait = false;
+  const sortBtn = overlay.querySelector('#nb-pk-sort');
+  sortBtn.addEventListener('click', () => {
+    sortByWait = !sortByWait;
+    sortBtn.classList.toggle('primary', sortByWait);
+    renderGrid();
+  });
 
   function currentBanner() {
     return bannerData.banners.find((b) => b.id === bannerId);
@@ -393,8 +463,10 @@ function initEditBannerChars(overlay, bannerId) {
 
   function slotsLeft(rarity) {
     const banner = currentBanner();
+    const limit = bannerData.limits[banner.type][rarity];
+    if (limit == null) return Infinity;
     const inBanner = banner.characters.filter((c) => c.rarity === rarity).length;
-    return bannerData.limits[banner.type][rarity] - inBanner;
+    return limit - inBanner;
   }
 
   function versionConflict(charId) {
@@ -411,10 +483,8 @@ function initEditBannerChars(overlay, bannerId) {
 
   function renderChars() {
     const banner = currentBanner();
-    const five = banner.characters.filter((c) => c.rarity === 5);
-    const four = banner.characters.filter((c) => c.rarity === 4);
     charsEl.innerHTML = banner.characters.length
-      ? [...five, ...four].map((c) => bannerCharHtml(banner, c)).join('')
+      ? charsSectionHtml(banner, { withAddBtn: false })
       : '<div class="empty-state" style="padding:14px">Nenhum personagem neste banner ainda.</div>';
     charsEl.querySelectorAll('.bc-remove').forEach((btn) =>
       btn.addEventListener('click', async () => {
@@ -453,6 +523,10 @@ function initEditBannerChars(overlay, bannerId) {
     }
     const banner = currentBanner();
     const targetSeq = versionSeq(banner.major, banner.minor);
+    if (sortByWait) {
+      const gaps = appearanceGapMap(banner.major, banner.minor);
+      chars.sort((a, b) => gaps[b.id] - gaps[a.id] || a.name.localeCompare(b.name));
+    }
     grid.innerHTML = chars.map((c) => {
       const already = inBannerIds.has(c.id);
       const full = slotsLeft(c.rarity) <= 0;
@@ -565,16 +639,26 @@ async function openPicker(bannerId) {
       <select id="pk-rarity"><option value="">Raridade: todas</option>
         <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
       </select>
+      <button type="button" class="btn small" id="pk-sort" title="Ordenar por quem está há mais tempo sem aparecer em banners">&#x21C5; Mais tempo sem aparecer</button>
     </div>
     <div class="pick-grid" id="pk-grid"></div>`, { wide: true });
 
   const grid = overlay.querySelector('#pk-grid');
   const targetSeq = versionSeq(banner.major, banner.minor);
+  let sortByWait = false;
+  const sortBtn = overlay.querySelector('#pk-sort');
+  sortBtn.addEventListener('click', () => {
+    sortByWait = !sortByWait;
+    sortBtn.classList.toggle('primary', sortByWait);
+    renderGrid();
+  });
 
   function slotsLeft(rarity) {
+    const limit = bannerData.limits[banner.type][rarity];
+    if (limit == null) return Infinity;
     const inBanner = bannerData.banners.find((b) => b.id === bannerId).characters
       .filter((c) => c.rarity === rarity).length;
-    return bannerData.limits[banner.type][rarity] - inBanner;
+    return limit - inBanner;
   }
 
   // versão(s) em que o personagem já apareceu, para bloquear repetição na mesma
@@ -614,6 +698,10 @@ async function openPicker(bannerId) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:30px">Nenhum personagem encontrado.</div>';
       return;
     }
+    if (sortByWait) {
+      const gaps = appearanceGapMap(banner.major, banner.minor);
+      chars.sort((a, b) => gaps[b.id] - gaps[a.id] || a.name.localeCompare(b.name));
+    }
     grid.innerHTML = chars.map((c) => {
       const already = inBannerIds.has(c.id);
       const full = slotsLeft(c.rarity) <= 0;
@@ -651,14 +739,16 @@ async function openPicker(bannerId) {
   renderGrid();
 }
 
-// mais de 3 versões cadastradas passam do container: permite rolar horizontalmente
-// com a roda do mouse (sem precisar segurar Shift), já que o board tem overflow-x
+// mais de 3 versões cadastradas passam da largura da tela: permite rolar
+// horizontalmente com a roda do mouse (sem precisar segurar Shift), já que
+// quando o board não cabe é a página toda que ganha a barra de rolagem
 const bannerBoard = document.getElementById('banner-board');
 bannerBoard.addEventListener('wheel', (e) => {
-  if (bannerBoard.scrollWidth <= bannerBoard.clientWidth) return;
+  const doc = document.documentElement;
+  if (doc.scrollWidth <= doc.clientWidth) return;
   if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
   e.preventDefault();
-  bannerBoard.scrollLeft += e.deltaY;
+  doc.scrollLeft += e.deltaY;
 }, { passive: false });
 
 load().catch((e) => toast(e.message, 'error'));

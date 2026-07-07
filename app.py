@@ -40,7 +40,7 @@ PARAM_TYPES = {
 BANNER_LIMITS = {
     "unitario": {5: 1, 4: 3},
     "duplo":    {5: 2, 4: 3},
-    "especial": {5: 10, 4: 5},
+    "especial": {5: 10, 4: None},  # 4★ ilimitado em banners especiais
 }
 
 TEXT_LIMITS = {
@@ -737,6 +737,8 @@ def api_banner_update(banner_id):
         return jsonify(error=f"Já existe um banner na versão {major}.{minor} "
                              f"({'1ª' if half == 1 else '2ª'} metade)."), 409
     for rarity, limit in BANNER_LIMITS[btype].items():
+        if limit is None:
+            continue
         count = conn.execute(
             """SELECT COUNT(*) AS n FROM banner_characters bc JOIN characters c ON c.id = bc.character_id
                WHERE bc.banner_id = ? AND c.rarity = ?""", (banner_id, rarity)).fetchone()["n"]
@@ -824,7 +826,7 @@ def api_banner_add_char(banner_id):
         (banner_id, char["rarity"]),
     ).fetchone()["n"]
     limit = BANNER_LIMITS[banner["type"]][char["rarity"]]
-    if count >= limit:
+    if limit is not None and count >= limit:
         conn.close()
         return jsonify(error=f"Limite de personagens {char['rarity']}★ atingido para banner "
                              f"{banner['type']} ({limit})."), 409

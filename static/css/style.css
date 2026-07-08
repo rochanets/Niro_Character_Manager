@@ -494,19 +494,43 @@ select option.opt-star4 { color: var(--star4); }
   align-items: center; justify-content: center;
 }
 .banner-char:hover .bc-remove { display: flex; }
-/* estreia: personagem aparecendo pela 1ª vez em qualquer banner — glow animado
-   azul/lilás (mesmas cores do número da versão) */
-@keyframes bc-first-glow {
-  0%, 100% {
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 14px 2px rgba(90, 215, 232, 0.55), 0 0 26px 6px rgba(167, 139, 250, 0.4);
-    border-color: rgba(90, 215, 232, 0.75);
-  }
-  50% {
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 20px 5px rgba(167, 139, 250, 0.65), 0 0 34px 10px rgba(90, 215, 232, 0.5);
-    border-color: rgba(167, 139, 250, 0.85);
-  }
+/* estreia: personagem aparecendo pela 1ª vez em qualquer banner — borda fina
+   azul/lilás (mesmas cores do texto em destaque) com uma luz que percorre o
+   contorno periodicamente; a iluminação fica contida dentro da borda, sem
+   vazar para fora do card */
+@property --bc-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
 }
-.banner-char.bc-first img { animation: bc-first-glow 2.4s ease-in-out infinite; }
+@keyframes bc-border-chase { to { --bc-angle: 360deg; } }
+.banner-char.bc-first img {
+  border-color: rgba(122, 162, 240, 0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 0 10px rgba(122, 162, 240, 0.22);
+}
+.banner-char.bc-first::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 9px;
+  padding: 1.5px;
+  background: conic-gradient(from var(--bc-angle),
+    transparent 0deg, transparent 230deg,
+    rgba(90, 215, 232, 0.2) 260deg,
+    rgba(90, 215, 232, 0.95) 290deg,
+    rgba(167, 139, 250, 1) 315deg,
+    rgba(90, 215, 232, 0.95) 340deg,
+    rgba(90, 215, 232, 0.2) 355deg,
+    transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+  animation: bc-border-chase 3.2s linear infinite;
+}
 .banner-add-btn {
   width: 48px; aspect-ratio: 3 / 4; border-radius: 9px;
   border: 1.5px dashed var(--glass-border); background: transparent;
@@ -538,14 +562,32 @@ select option.opt-star4 { color: var(--star4); }
   width: 16px; height: 16px; font-size: 9px;
 }
 .banner-four-list li:hover .bc-remove.b4-remove { display: flex; }
-/* estreia (1ª aparição em banner) também vale para os 4★ da lista */
-@keyframes bc-first-glow-soft {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(90, 215, 232, 0.5) inset, 0 0 10px 1px rgba(167, 139, 250, 0.35); }
-  50% { box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.65) inset, 0 0 16px 3px rgba(90, 215, 232, 0.45); }
-}
+/* estreia (1ª aparição em banner) também vale para os 4★ da lista: mesma
+   borda fina com luz percorrendo o contorno, contida dentro da borda */
 .banner-four-list li.bc-first {
+  position: relative;
   border-radius: 6px; padding-left: 4px;
-  animation: bc-first-glow-soft 2.4s ease-in-out infinite;
+  box-shadow: inset 0 0 8px rgba(122, 162, 240, 0.18);
+}
+.banner-four-list li.bc-first::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  padding: 1.5px;
+  background: conic-gradient(from var(--bc-angle),
+    transparent 0deg, transparent 230deg,
+    rgba(90, 215, 232, 0.2) 260deg,
+    rgba(90, 215, 232, 0.95) 290deg,
+    rgba(167, 139, 250, 1) 315deg,
+    rgba(90, 215, 232, 0.95) 340deg,
+    rgba(90, 215, 232, 0.2) 355deg,
+    transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  animation: bc-border-chase 3.2s linear infinite;
 }
 .banner-four-list li.bc-first .b4-name { color: var(--ink-1); font-weight: 600; }
 .banner-special { margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(232, 160, 216, 0.3); }

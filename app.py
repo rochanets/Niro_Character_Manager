@@ -16,8 +16,8 @@ from uuid import uuid4
 
 import requests
 from dotenv import load_dotenv
-from flask import (Flask, Response, abort, jsonify, redirect, render_template,
-                   request, send_file, stream_with_context, url_for)
+from flask import (Flask, Response, abort, got_request_exception, jsonify, redirect,
+                   render_template, request, send_file, stream_with_context, url_for)
 
 from db import BASE_DIR, DB_PATH, UPLOAD_DIR, delete_upload, get_db, init_db, purge_expired_archive
 
@@ -25,6 +25,21 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB por request (backups completos em zip)
+
+
+def _on_request_exception(sender, exception, **extra):
+    """Registra qualquer exceção não tratada de uma requisição no módulo Logs,
+    sem alterar o comportamento normal de erro do Flask (via sinal, não errorhandler)."""
+    try:
+        conn = get_db()
+        log_event(conn, "error", "exception", f"{request.method} {request.path}: {exception}")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+got_request_exception.connect(_on_request_exception, app)
 
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
 
@@ -51,6 +66,15 @@ TEXT_LIMITS = {
 
 
 # ---------------------------------------------------------------- helpers
+
+LOG_RETENTION = 2000
+
+
+def log_event(conn, level, action, message):
+    """Registra um evento no módulo Logs. `level` é info/success/warning/error."""
+    conn.execute("INSERT INTO logs (level, action, message) VALUES (?, ?, ?)", (level, action, message))
+    conn.execute("DELETE FROM logs WHERE id <= (SELECT MAX(id) FROM logs) - ?", (LOG_RETENTION,))
+
 
 def save_image(file_storage, subdir):
     filename = file_storage.filename or "image.png"
@@ -219,6 +243,11 @@ def page_archive():
     return render_template("archive.html", active="archive")
 
 
+@app.route("/logs")
+def page_logs():
+    return render_template("logs.html", active="logs")
+
+
 # ---------------------------------------------------------------- API: parâmetros
 
 @app.route("/api/params")
@@ -251,6 +280,7 @@ def api_param_create(ptype):
                                (name, description))
         else:
             cur = conn.execute(f"INSERT INTO {meta['table']} (name) VALUES (?)", (name,))
+        log_event(conn, "success", "parametro.criado", f"{meta['label']} \"{name}\" cadastrado(a).")
         conn.commit()
         return jsonify(id=cur.lastrowid, name=name, image=image, description=description), 201
     except Exception:
@@ -283,6 +313,7 @@ def api_param_update(ptype, item_id):
         if ptype == "role" and name != old_name:
             conn.execute("UPDATE characters SET role1 = ? WHERE role1 = ?", (name, old_name))
             conn.execute("UPDATE characters SET role2 = ? WHERE role2 = ?", (name, old_name))
+        log_event(conn, "info", "parametro.editado", f"{meta['label']} \"{old_name}\" atualizado(a).")
         conn.commit()
         return jsonify(ok=True)
     except Exception:
@@ -319,6 +350,7 @@ def api_param_delete(ptype, item_id):
             conn.execute("UPDATE characters SET role1 = ? WHERE role1 = ?", (new_role["name"], name))
             conn.execute("UPDATE characters SET role2 = ? WHERE role2 = ?", (new_role["name"], name))
         conn.execute("DELETE FROM roles WHERE id = ?", (item_id,))
+        log_event(conn, "warning", "parametro.excluido", f"{meta['label']} \"{name}\" excluído(a).")
         conn.commit()
         conn.close()
         return jsonify(ok=True)
@@ -340,6 +372,7 @@ def api_param_delete(ptype, item_id):
     if meta["has_image"]:
         delete_upload(row["image"])
     conn.execute(f"DELETE FROM {meta['table']} WHERE id = ?", (item_id,))
+    log_event(conn, "warning", "parametro.excluido", f"{meta['label']} \"{row['name']}\" excluído(a).")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -416,6 +449,10 @@ def api_import():
             os.makedirs(UPLOAD_DIR, exist_ok=True)
 
     init_db()
+    conn = get_db()
+    log_event(conn, "warning", "backup.importado", f"Backup \"{file.filename}\" importado (substituiu todos os dados).")
+    conn.commit()
+    conn.close()
     return jsonify(ok=True)
 
 
@@ -472,6 +509,7 @@ def api_character_create():
     cols = ", ".join(data.keys())
     marks = ", ".join("?" for _ in data)
     cur = conn.execute(f"INSERT INTO characters ({cols}) VALUES ({marks})", list(data.values()))
+    log_event(conn, "success", "personagem.criado", f"Personagem \"{data['name']}\" cadastrado.")
     conn.commit()
     conn.close()
     return jsonify(id=cur.lastrowid), 201
@@ -503,6 +541,7 @@ def api_character_update(char_id):
             data[field] = save_image(file, "characters")
     sets = ", ".join(f"{k} = ?" for k in data)
     conn.execute(f"UPDATE characters SET {sets} WHERE id = ?", list(data.values()) + [char_id])
+    log_event(conn, "info", "personagem.editado", f"Personagem \"{data['name']}\" atualizado.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -511,11 +550,12 @@ def api_character_update(char_id):
 @app.route("/api/characters/<int:char_id>", methods=["DELETE"])
 def api_character_archive(char_id):
     conn = get_db()
-    row = conn.execute("SELECT id FROM characters WHERE id = ? AND archived = 0", (char_id,)).fetchone()
+    row = conn.execute("SELECT id, name FROM characters WHERE id = ? AND archived = 0", (char_id,)).fetchone()
     if not row:
         conn.close()
         abort(404)
     conn.execute("UPDATE characters SET archived = 1, archived_at = datetime('now') WHERE id = ?", (char_id,))
+    log_event(conn, "warning", "personagem.arquivado", f"Personagem \"{row['name']}\" movido para o Arquivo.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -524,7 +564,10 @@ def api_character_archive(char_id):
 @app.route("/api/characters/<int:char_id>/restore", methods=["POST"])
 def api_character_restore(char_id):
     conn = get_db()
+    row = conn.execute("SELECT name FROM characters WHERE id = ?", (char_id,)).fetchone()
     conn.execute("UPDATE characters SET archived = 0, archived_at = NULL WHERE id = ?", (char_id,))
+    if row:
+        log_event(conn, "success", "personagem.restaurado", f"Personagem \"{row['name']}\" restaurado do Arquivo.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -540,6 +583,7 @@ def api_character_permanent(char_id):
     delete_upload(row["card_full"])
     delete_upload(row["card_promo"])
     conn.execute("DELETE FROM characters WHERE id = ?", (char_id,))
+    log_event(conn, "warning", "personagem.excluido", f"Personagem \"{row['name']}\" excluído definitivamente.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -726,6 +770,7 @@ def api_banner_create():
         conn.execute("INSERT INTO versions (major, name) VALUES (?, ?)", (major, version_name))
     cur = conn.execute("INSERT INTO banners (major, minor, half, type) VALUES (?, ?, ?, ?)",
                        (major, minor, half, btype))
+    log_event(conn, "success", "banner.criado", f"Banner ({btype}) criado na versão {major}.{minor}.")
     conn.commit()
     conn.close()
     return jsonify(id=cur.lastrowid), 201
@@ -797,6 +842,7 @@ def api_banner_update(banner_id):
         conn.execute("INSERT INTO versions (major, name) VALUES (?, ?)", (major, version_name))
     conn.execute("UPDATE banners SET major = ?, minor = ?, half = ?, type = ? WHERE id = ?",
                  (major, minor, half, btype, banner_id))
+    log_event(conn, "info", "banner.editado", f"Banner #{banner_id} atualizado (versão {major}.{minor}).")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -806,6 +852,7 @@ def api_banner_update(banner_id):
 def api_banner_delete(banner_id):
     conn = get_db()
     conn.execute("DELETE FROM banners WHERE id = ?", (banner_id,))
+    log_event(conn, "warning", "banner.excluido", f"Banner #{banner_id} excluído.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -1009,6 +1056,7 @@ def api_team_create():
     for slot, member in enumerate(members):
         conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",
                      (team_id, slot, member))
+    log_event(conn, "success", "time.criado", f"Time \"{name}\" cadastrado.")
     conn.commit()
     conn.close()
     return jsonify(id=team_id), 201
@@ -1062,6 +1110,7 @@ def api_team_update(team_id):
     for slot, member in enumerate(members):
         conn.execute("INSERT INTO team_members (team_id, slot, character_id) VALUES (?, ?, ?)",
                      (team_id, slot, member))
+    log_event(conn, "info", "time.editado", f"Time \"{name}\" atualizado.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -1070,7 +1119,10 @@ def api_team_update(team_id):
 @app.route("/api/teams/<int:team_id>", methods=["DELETE"])
 def api_team_delete(team_id):
     conn = get_db()
+    row = conn.execute("SELECT name FROM teams WHERE id = ?", (team_id,)).fetchone()
     conn.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+    if row:
+        log_event(conn, "warning", "time.excluido", f"Time \"{row['name']}\" excluído.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -1224,6 +1276,7 @@ def api_reaction_create():
     cur = conn.execute(
         "INSERT INTO reactions (element1_id, element2_id, name, description, effect, image) "
         "VALUES (?, ?, ?, ?, ?, ?)", (lo, hi, name, description, effect, image))
+    log_event(conn, "success", "reacao.criada", f"Reação \"{name}\" cadastrada.")
     conn.commit()
     reaction_id = cur.lastrowid
     conn.close()
@@ -1244,6 +1297,7 @@ def api_reaction_update(reaction_id):
         abort(404)
     conn.execute("UPDATE reactions SET name = ?, description = ?, effect = ? WHERE id = ?",
                  (name, description, effect, reaction_id))
+    log_event(conn, "info", "reacao.editada", f"Reação \"{name}\" atualizada.")
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -1252,11 +1306,12 @@ def api_reaction_update(reaction_id):
 @app.route("/api/reactions/<int:reaction_id>", methods=["DELETE"])
 def api_reaction_delete(reaction_id):
     conn = get_db()
-    row = conn.execute("SELECT image FROM reactions WHERE id = ?", (reaction_id,)).fetchone()
+    row = conn.execute("SELECT image, name FROM reactions WHERE id = ?", (reaction_id,)).fetchone()
     if not row:
         conn.close()
         abort(404)
     conn.execute("DELETE FROM reactions WHERE id = ?", (reaction_id,))
+    log_event(conn, "warning", "reacao.excluida", f"Reação \"{row['name']}\" excluída.")
     conn.commit()
     conn.close()
     delete_upload(row["image"])
@@ -1443,6 +1498,50 @@ def api_ai_fill():
     return Response(stream_with_context(generate()),
                     mimetype="text/plain; charset=utf-8",
                     headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+
+# ---------------------------------------------------------------- API: logs
+
+LOG_LEVELS = {"info", "success", "warning", "error"}
+
+
+@app.route("/api/logs")
+def api_logs():
+    conn = get_db()
+    level = request.args.get("level") or ""
+    action_filter = (request.args.get("action") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    limit = max(1, min(int(request.args.get("limit", 200)), 500))
+    offset = max(0, int(request.args.get("offset", 0)))
+
+    where, params = [], []
+    if level in LOG_LEVELS:
+        where.append("level = ?")
+        params.append(level)
+    if action_filter:
+        where.append("action = ?")
+        params.append(action_filter)
+    if q:
+        where.append("(message LIKE ? OR action LIKE ?)")
+        params += [f"%{q}%", f"%{q}%"]
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    total = conn.execute(f"SELECT COUNT(*) FROM logs {clause}", params).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT * FROM logs {clause} ORDER BY id DESC LIMIT ? OFFSET ?",
+        params + [limit, offset]).fetchall()
+    actions = [r["action"] for r in conn.execute("SELECT DISTINCT action FROM logs ORDER BY action")]
+    conn.close()
+    return jsonify(items=[dict(r) for r in rows], total=total, actions=actions)
+
+
+@app.route("/api/logs", methods=["DELETE"])
+def api_logs_clear():
+    conn = get_db()
+    conn.execute("DELETE FROM logs")
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------- bootstrap

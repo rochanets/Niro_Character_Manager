@@ -154,6 +154,9 @@ body {
 }
 .sidebar-footer { text-align: center; font-size: 11px; color: var(--ink-3); letter-spacing: 1px; }
 
+/* Logs fica destacado do resto da navegação, pinado bem no final da barra */
+.nav-item-logs { margin-top: auto; border-top: 1px solid var(--glass-border-soft); padding-top: 14px; }
+
 /* --------- conteúdo --------- */
 .content {
   flex: 1; margin-left: calc(var(--sidebar-w-collapsed) + 24px);
@@ -821,6 +824,34 @@ select option.opt-star4 { color: var(--star4); }
 .combo-imgs { display: flex; gap: 4px; }
 .combo-imgs img { width: 30px; height: 30px; object-fit: contain; }
 .combo-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+
+/* --------- logs --------- */
+.log-table { display: flex; flex-direction: column; gap: 6px; }
+.log-row {
+  display: grid; grid-template-columns: 90px 170px 1fr auto; gap: 14px; align-items: center;
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--glass); border: 1px solid var(--glass-border-soft);
+  border-left: 3px solid var(--ink-3);
+}
+.log-row.log-info { border-left-color: var(--accent); }
+.log-row.log-success { border-left-color: var(--ok); }
+.log-row.log-warning { border-left-color: var(--gold); }
+.log-row.log-error { border-left-color: var(--danger); }
+.log-level {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 3px 8px; border-radius: 999px; text-align: center; color: var(--ink-1);
+  background: var(--glass-strong);
+}
+.log-row.log-info .log-level { color: var(--accent); }
+.log-row.log-success .log-level { color: var(--ok); }
+.log-row.log-warning .log-level { color: var(--gold); }
+.log-row.log-error .log-level { color: var(--danger); }
+.log-action { font-size: 12px; font-family: monospace; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-message { font-size: 13.5px; color: var(--ink-1); overflow-wrap: anywhere; }
+.log-time { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+@media (max-width: 900px) {
+  .log-row { grid-template-columns: 1fr; gap: 4px; }
+}
 
 /* --------- reações --------- */
 .reactions-scroll { overflow-x: auto; padding-bottom: 8px; }

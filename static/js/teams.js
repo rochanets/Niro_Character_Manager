@@ -36,7 +36,6 @@ function initGridColsToggle() {
     }));
 }
 initGridColsToggle();
-initSortToggle();
 
 async function load() {
   const [t, c, params] = await Promise.all([api('/api/teams'), api('/api/characters'), api('/api/params')]);
@@ -229,6 +228,7 @@ function initSortToggle() {
       render();
     }));
 }
+initSortToggle();
 
 function render() {
   const root = document.getElementById('team-grid');

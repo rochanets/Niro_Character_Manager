@@ -89,6 +89,14 @@ CREATE TABLE IF NOT EXISTS team_members (
     UNIQUE (team_id, slot),
     UNIQUE (character_id)
 );
+CREATE TABLE IF NOT EXISTS logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    level      TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'success', 'warning', 'error')),
+    action     TEXT NOT NULL,
+    message    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_logs_created_at ON logs(created_at);
 CREATE TABLE IF NOT EXISTS reactions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     element1_id  INTEGER NOT NULL REFERENCES elements(id) ON DELETE CASCADE,

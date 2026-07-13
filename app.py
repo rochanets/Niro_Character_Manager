@@ -64,6 +64,34 @@ def save_image(file_storage, subdir):
     return f"uploads/{subdir}/{name}"
 
 
+def compose_reaction_image(elem_a_rel, elem_b_rel, size=160):
+    """Gera o símbolo de uma reação: metade esquerda do ícone do elemento A
+    e metade direita do ícone do elemento B, unidos ao centro."""
+    from PIL import Image
+
+    def half(rel, side):
+        path = os.path.join(BASE_DIR, "static", rel.replace("/", os.sep))
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            scale = max(size / im.width, size / im.height)
+            nw, nh = max(1, round(im.width * scale)), max(1, round(im.height * scale))
+            im = im.resize((nw, nh), Image.LANCZOS)
+            left, top = (nw - size) // 2, (nh - size) // 2
+            im = im.crop((left, top, left + size, top + size))
+            half_w = size // 2
+            box = (0, 0, half_w, size) if side == "L" else (half_w, 0, size, size)
+            return im.crop(box)
+
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.paste(half(elem_a_rel, "L"), (0, 0))
+    canvas.paste(half(elem_b_rel, "R"), (size // 2, 0))
+    dest_dir = os.path.join(UPLOAD_DIR, "reactions")
+    os.makedirs(dest_dir, exist_ok=True)
+    name = uuid4().hex + ".png"
+    canvas.save(os.path.join(dest_dir, name))
+    return f"uploads/reactions/{name}"
+
+
 def fetch_params(conn):
     out = {}
     for key, meta in PARAM_TYPES.items():
@@ -168,6 +196,11 @@ def page_params():
 @app.route("/times")
 def page_teams():
     return render_template("teams.html", active="teams")
+
+
+@app.route("/reacoes")
+def page_reactions():
+    return render_template("reactions.html", active="reactions")
 
 
 @app.route("/banners")
@@ -854,6 +887,10 @@ GRADIENT_MODES = 5
 
 
 def team_payload(conn):
+    reactions_all = [reaction_to_dict(r) for r in conn.execute(REACTION_SELECT)]
+    reactions_by_pair = {tuple(sorted((r["element1"]["id"], r["element2"]["id"]))): r for r in reactions_all}
+    reactions_by_id = {r["id"]: r for r in reactions_all}
+
     teams = []
     for t in conn.execute(
         """SELECT te.*, e1.name AS element1_name, e1.image AS element1_image,
@@ -864,7 +901,7 @@ def team_payload(conn):
            ORDER BY te.created_at, te.id"""
     ):
         rows = conn.execute(
-            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.role1, c.role2,
+            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.card_full, c.role1, c.role2,
                       e.name AS element_name, e.image AS element_image
                FROM team_members tm
                LEFT JOIN characters c ON c.id = tm.character_id
@@ -881,17 +918,27 @@ def team_payload(conn):
             else:
                 members.append({
                     "id": r["id"], "name": r["name"], "rarity": r["rarity"],
-                    "card_promo": r["card_promo"],
+                    "card_promo": r["card_promo"], "card_full": r["card_full"],
                     "role1": r["role1"], "role2": r["role2"],
                     "element_name": r["element_name"],
                     "element_image": r["element_image"],
                 })
         d = dict(t)
+        reaction_id = d.pop("reaction_id")
+        reaction_cleared = d.pop("reaction_cleared")
         e1_id, e1_name, e1_img = d.pop("element1_id"), d.pop("element1_name"), d.pop("element1_image")
         e2_id, e2_name, e2_img = d.pop("element2_id"), d.pop("element2_name"), d.pop("element2_image")
         element1 = {"id": e1_id, "name": e1_name, "image": e1_img} if e1_id is not None else None
         element2 = {"id": e2_id, "name": e2_name, "image": e2_img} if e2_id is not None else None
-        teams.append({**d, "element1": element1, "element2": element2, "members": members})
+
+        reaction = None
+        if element1 and element2 and e1_id != e2_id:
+            if reaction_id:
+                reaction = reactions_by_id.get(reaction_id)
+            elif not reaction_cleared:
+                reaction = reactions_by_pair.get(tuple(sorted((e1_id, e2_id))))
+
+        teams.append({**d, "element1": element1, "element2": element2, "members": members, "reaction": reaction})
     return teams
 
 
@@ -1080,6 +1127,139 @@ def api_team_set_member(team_id, slot):
                  (char_id, team_id, slot))
     conn.commit()
     conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/reaction", methods=["PUT"])
+def api_team_reaction_set(team_id):
+    body = request.get_json(force=True)
+    reaction_id = body.get("reaction_id")
+    if not isinstance(reaction_id, int):
+        return jsonify(error="Reação inválida."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    if not conn.execute("SELECT 1 FROM reactions WHERE id = ?", (reaction_id,)).fetchone():
+        conn.close()
+        return jsonify(error="Reação inexistente."), 400
+    conn.execute("UPDATE teams SET reaction_id = ?, reaction_cleared = 0 WHERE id = ?",
+                 (reaction_id, team_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/teams/<int:team_id>/reaction", methods=["DELETE"])
+def api_team_reaction_clear(team_id):
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone():
+        conn.close()
+        abort(404)
+    conn.execute("UPDATE teams SET reaction_id = NULL, reaction_cleared = 1 WHERE id = ?", (team_id,))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- API: reações
+
+REACTION_SELECT = """
+    SELECT r.*, e1.name AS element1_name, e1.image AS element1_image,
+           e2.name AS element2_name, e2.image AS element2_image
+    FROM reactions r
+    JOIN elements e1 ON e1.id = r.element1_id
+    JOIN elements e2 ON e2.id = r.element2_id
+"""
+
+
+def reaction_to_dict(row):
+    d = dict(row)
+    d["element1"] = {"id": d.pop("element1_id"), "name": d.pop("element1_name"), "image": d.pop("element1_image")}
+    d["element2"] = {"id": d.pop("element2_id"), "name": d.pop("element2_name"), "image": d.pop("element2_image")}
+    return d
+
+
+@app.route("/api/reactions")
+def api_reactions():
+    conn = get_db()
+    rows = conn.execute(REACTION_SELECT + " ORDER BY r.id").fetchall()
+    out = [reaction_to_dict(r) for r in rows]
+    conn.close()
+    return jsonify(out)
+
+
+@app.route("/api/reactions", methods=["POST"])
+def api_reaction_create():
+    body = request.get_json(force=True)
+    e1 = body.get("element1_id")
+    e2 = body.get("element2_id")
+    name = (body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    effect = (body.get("effect") or "").strip()
+    if not isinstance(e1, int) or not isinstance(e2, int):
+        return jsonify(error="Selecione os dois elementos."), 400
+    if e1 == e2:
+        return jsonify(error="Escolha dois elementos diferentes."), 400
+    if not name:
+        return jsonify(error="Informe o nome da reação."), 400
+    lo, hi = sorted((e1, e2))
+    conn = get_db()
+    elems = conn.execute("SELECT id, image FROM elements WHERE id IN (?, ?)", (lo, hi)).fetchall()
+    by_id = {r["id"]: r["image"] for r in elems}
+    if len(by_id) != 2:
+        conn.close()
+        return jsonify(error="Elemento inexistente."), 400
+    if not by_id.get(lo) or not by_id.get(hi):
+        conn.close()
+        return jsonify(error="Os dois elementos precisam ter uma imagem cadastrada em Parâmetros."), 400
+    if conn.execute("SELECT 1 FROM reactions WHERE element1_id = ? AND element2_id = ?", (lo, hi)).fetchone():
+        conn.close()
+        return jsonify(error="Já existe uma reação cadastrada para esses elementos."), 409
+    try:
+        image = compose_reaction_image(by_id[lo], by_id[hi])
+    except Exception:
+        conn.close()
+        return jsonify(error="Não foi possível gerar a imagem da reação."), 400
+    cur = conn.execute(
+        "INSERT INTO reactions (element1_id, element2_id, name, description, effect, image) "
+        "VALUES (?, ?, ?, ?, ?, ?)", (lo, hi, name, description, effect, image))
+    conn.commit()
+    reaction_id = cur.lastrowid
+    conn.close()
+    return jsonify(id=reaction_id), 201
+
+
+@app.route("/api/reactions/<int:reaction_id>", methods=["PUT"])
+def api_reaction_update(reaction_id):
+    body = request.get_json(force=True)
+    name = (body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    effect = (body.get("effect") or "").strip()
+    if not name:
+        return jsonify(error="Informe o nome da reação."), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM reactions WHERE id = ?", (reaction_id,)).fetchone():
+        conn.close()
+        abort(404)
+    conn.execute("UPDATE reactions SET name = ?, description = ?, effect = ? WHERE id = ?",
+                 (name, description, effect, reaction_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@app.route("/api/reactions/<int:reaction_id>", methods=["DELETE"])
+def api_reaction_delete(reaction_id):
+    conn = get_db()
+    row = conn.execute("SELECT image FROM reactions WHERE id = ?", (reaction_id,)).fetchone()
+    if not row:
+        conn.close()
+        abort(404)
+    conn.execute("DELETE FROM reactions WHERE id = ?", (reaction_id,))
+    conn.commit()
+    conn.close()
+    delete_upload(row["image"])
     return jsonify(ok=True)
 
 

@@ -89,6 +89,18 @@ CREATE TABLE IF NOT EXISTS team_members (
     UNIQUE (team_id, slot),
     UNIQUE (character_id)
 );
+CREATE TABLE IF NOT EXISTS reactions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    element1_id  INTEGER NOT NULL REFERENCES elements(id) ON DELETE CASCADE,
+    element2_id  INTEGER NOT NULL REFERENCES elements(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    effect       TEXT,
+    image        TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (element1_id < element2_id),
+    UNIQUE (element1_id, element2_id)
+);
 """
 
 
@@ -171,7 +183,7 @@ def _migrate_banners_special_half(conn):
 
 
 def init_db():
-    for sub in ("characters", "elements", "weapons"):
+    for sub in ("characters", "elements", "weapons", "reactions"):
         os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
     conn = get_db()
     conn.executescript(SCHEMA)
@@ -183,6 +195,10 @@ def init_db():
     for col in ("element1_id", "element2_id"):
         if col not in existing_teams:
             conn.execute(f"ALTER TABLE teams ADD COLUMN {col} INTEGER REFERENCES elements(id)")
+    if "reaction_id" not in existing_teams:
+        conn.execute("ALTER TABLE teams ADD COLUMN reaction_id INTEGER REFERENCES reactions(id) ON DELETE SET NULL")
+    if "reaction_cleared" not in existing_teams:
+        conn.execute("ALTER TABLE teams ADD COLUMN reaction_cleared INTEGER NOT NULL DEFAULT 0")
     _migrate_banners_half(conn)
     _migrate_banners_special_half(conn)
     if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():

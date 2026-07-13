@@ -36,6 +36,7 @@ function initGridColsToggle() {
     }));
 }
 initGridColsToggle();
+initSortToggle();
 
 async function load() {
   const [t, c, params] = await Promise.all([api('/api/teams'), api('/api/characters'), api('/api/params')]);
@@ -76,53 +77,8 @@ function usedCharIds() {
 }
 
 // ---------------------------------------------------------------- cor dos elementos
-const _colorCache = new Map();
-
-function imageColor(url) {
-  if (_colorCache.has(url)) return _colorCache.get(url);
-  const promise = new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const size = 24;
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, size, size);
-      let data;
-      try { data = ctx.getImageData(0, 0, size, size).data; } catch (_) { return resolve(null); }
-      let r = 0, g = 0, b = 0, n = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] < 60) continue;                       // ignora transparência
-        const R = data[i], G = data[i + 1], B = data[i + 2];
-        const w = 1 + (Math.max(R, G, B) - Math.min(R, G, B)) / 24;  // pixels vivos pesam mais
-        r += R * w; g += G * w; b += B * w; n += w;
-      }
-      resolve(n ? [r / n, g / n, b / n] : null);
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-  _colorCache.set(url, promise);
-  return promise;
-}
-
-function vivid([r, g, b]) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-  const l = (max + min) / 2;
-  let h = 0;
-  let s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  if (d > 0) {
-    if (max === r) h = ((g - b) / d) % 6;
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  s = Math.min(1, s * 1.35 + 0.1);
-  const L = Math.min(0.55, Math.max(0.34, l));
-  return `hsl(${h.toFixed(0)} ${(s * 100).toFixed(0)}% ${(L * 100).toFixed(0)}% / 0.85)`;
-}
+// imageColor/vividColor/elementColor e as cores fixas de ELEMENT_COLOR_OVERRIDES
+// vivem em main.js (compartilhadas com o módulo Reações).
 
 function gradientCss(colors, mode) {
   if (!colors.length) {
@@ -140,20 +96,11 @@ function gradientCss(colors, mode) {
   }
 }
 
-// cores fixas para elementos cuja cor dominante extraída do ícone fica escura/pesada demais
-const ELEMENT_COLOR_OVERRIDES = {
-  fae: 'hsl(330 75% 82% / 0.85)',   // rosa bebê, em vez do rosa escuro extraído do ícone
-};
-
 async function applyGradient(team, headEl) {
   if (!headEl) return;
   const withImg = team.members.filter((m) => m && m.element_image);
-  const colors = (await Promise.all(withImg.map(async (m) => {
-    const override = ELEMENT_COLOR_OVERRIDES[(m.element_name || '').trim().toLowerCase()];
-    if (override) return override;
-    const rgb = await imageColor(`/static/${m.element_image}`);
-    return rgb ? vivid(rgb) : null;
-  }))).filter(Boolean);
+  const colors = (await Promise.all(withImg.map((m) =>
+    elementColor({ name: m.element_name, image: m.element_image })))).filter(Boolean);
   headEl.style.background = gradientCss(colors, team.gradient_mode);
 }
 
@@ -167,7 +114,7 @@ function memberHtml(team, m, slot) {
       </div>`;
   }
   const elem = m.element_image
-    ? `<img class="tm-elem" src="/static/${esc(m.element_image)}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`
+    ? `<img class="tm-elem" src="${esc(thumbUrl(m.element_image, 64))}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`
     : '<span class="tm-elem"></span>';
   const roles = [m.role1, m.role2].filter(Boolean);
   const rolesHtml = roles.length
@@ -175,8 +122,8 @@ function memberHtml(team, m, slot) {
     : '';
   return `
     <div class="team-member">
-      <div class="tm-card r${m.rarity}">
-        <img src="/static/${esc(m.card_promo)}" alt="${esc(m.name)}" loading="lazy">
+      <div class="tm-card r${m.rarity}" data-team="${team.id}" data-open-full="${m.id}" title="Ver card completo">
+        <img src="${esc(thumbUrl(m.card_promo, 480))}" alt="${esc(m.name)}" loading="lazy">
         <button class="tm-remove" data-team="${team.id}" data-char="${m.id}" title="Remover do time">&#x2715;</button>
       </div>
       <div class="tm-name" title="${esc(m.name)}">${esc(m.name)}</div>
@@ -186,7 +133,7 @@ function memberHtml(team, m, slot) {
 }
 
 function compTagHtml(el) {
-  const img = el.image ? `<img src="/static/${esc(el.image)}" alt="${esc(el.name)}">` : '';
+  const img = el.image ? `<img src="${esc(thumbUrl(el.image, 40))}" alt="${esc(el.name)}">` : '';
   return `<span class="comp-tag">${img}${esc(el.name)}</span>`;
 }
 
@@ -194,14 +141,27 @@ function compositionHtml(t) {
   if (!t.element1) return '';
   const mono = t.element2 && t.element1.id === t.element2.id;
   if (mono) {
-    const img = t.element1.image ? `<img src="/static/${esc(t.element1.image)}" alt="${esc(t.element1.name)}">` : '';
+    const img = t.element1.image ? `<img src="${esc(thumbUrl(t.element1.image, 40))}" alt="${esc(t.element1.name)}">` : '';
     return `<div class="team-comp-tags"><span class="comp-tag mono">${img}MONO ${esc(t.element1.name.toUpperCase())}</span></div>`;
   }
   if (!t.element2) {
-    const img = t.element1.image ? `<img src="/static/${esc(t.element1.image)}" alt="${esc(t.element1.name)}">` : '';
+    const img = t.element1.image ? `<img src="${esc(thumbUrl(t.element1.image, 40))}" alt="${esc(t.element1.name)}">` : '';
     return `<div class="team-comp-tags"><span class="comp-tag rainbow">${img}${esc(t.element1.name.toUpperCase())} RAINBOW</span></div>`;
   }
   return `<div class="team-comp-tags">${compTagHtml(t.element1)}${compTagHtml(t.element2)}</div>`;
+}
+
+function reactionBadgeHtml(t) {
+  if (!t.element1 || !t.element2 || t.element1.id === t.element2.id) return '';
+  if (t.reaction) {
+    return `
+      <div class="team-reaction" data-team="${t.id}" data-reaction="${t.reaction.id}" title="${esc(t.reaction.name)}">
+        <img src="${esc(thumbUrl(t.reaction.image, 64))}" alt="${esc(t.reaction.name)}">
+        <span class="tr-name">${esc(t.reaction.name)}</span>
+        <button class="tr-remove" data-team="${t.id}" title="Remover reação deste time">&#x2715;</button>
+      </div>`;
+  }
+  return `<button class="team-reaction-add" data-team="${t.id}" title="Vincular uma reação a este time">+</button>`;
 }
 
 function teamHtml(t) {
@@ -210,7 +170,10 @@ function teamHtml(t) {
     <div class="team-card glass">
       <div class="team-head" data-team="${t.id}">
         <div class="team-head-top">
-          <span class="team-name">${esc(t.name)}</span>
+          <div class="team-head-left">
+            <span class="team-name">${esc(t.name)}</span>
+            ${reactionBadgeHtml(t)}
+          </div>
           <div class="team-head-actions">
             <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
             <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
@@ -225,6 +188,48 @@ function teamHtml(t) {
     </div>`;
 }
 
+// ---------------------------------------------------------------- ordenação
+const SORT_KEY = 'niro-team-sort';
+
+function elementRank(elementId) {
+  const idx = (allElements || []).findIndex((e) => e.id === elementId);
+  return idx === -1 ? Infinity : idx;
+}
+
+// Times "Mono X" e "X Rainbow" ficam agrupados junto com os demais times do elemento X
+// (a ordenação usa element1 como elemento de referência do grupo).
+function sortByElement(list) {
+  return [...list].sort((a, b) => {
+    if (!a.element1 && !b.element1) return 0;
+    if (!a.element1) return 1;
+    if (!b.element1) return -1;
+    const rankA = elementRank(a.element1.id);
+    const rankB = elementRank(b.element1.id);
+    if (rankA !== rankB) return rankA - rankB;
+    const groupRank = (t) => {
+      if (!t.element2) return 2;                              // Rainbow por último no grupo
+      if (t.element2.id === t.element1.id) return 0;          // Mono primeiro
+      return 1;                                                // combinações mistas no meio
+    };
+    const gA = groupRank(a), gB = groupRank(b);
+    if (gA !== gB) return gA - gB;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function initSortToggle() {
+  const bar = document.getElementById('team-sort-toggle');
+  if (!bar) return;
+  const saved = localStorage.getItem(SORT_KEY) || 'default';
+  bar.querySelectorAll('.seg-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.sort === saved));
+  bar.querySelectorAll('.seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      localStorage.setItem(SORT_KEY, btn.dataset.sort);
+      bar.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      render();
+    }));
+}
+
 function render() {
   const root = document.getElementById('team-grid');
   if (!teams.length) {
@@ -233,7 +238,7 @@ function render() {
       <button class="btn primary" onclick="document.getElementById('new-team-btn').click()">+ Cadastrar o primeiro</button></div>`;
     return;
   }
-  const visible = selectedElementFilters.size
+  let visible = selectedElementFilters.size
     ? teams.filter((t) => [...selectedElementFilters].some((id) => teamHasElement(t, id)))
     : teams;
   if (!visible.length) {
@@ -241,6 +246,7 @@ function render() {
       Nenhum time com os elementos selecionados.</div>`;
     return;
   }
+  if ((localStorage.getItem(SORT_KEY) || 'default') === 'element') visible = sortByElement(visible);
   root.innerHTML = visible.map(teamHtml).join('');
 
   visible.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));
@@ -262,6 +268,88 @@ function render() {
   root.querySelectorAll('.tm-card.mystery').forEach((card) =>
     card.addEventListener('click', () =>
       openMysteryPicker(teams.find((t) => t.id === +card.dataset.team), +card.dataset.slot)));
+  root.querySelectorAll('.tm-card[data-open-full]').forEach((card) =>
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.tm-remove')) return;
+      const team = teams.find((t) => t.id === +card.dataset.team);
+      const member = team && team.members.find((m) => m && m.id === +card.dataset.openFull);
+      if (member) openFullCardModal(member);
+    }));
+  root.querySelectorAll('.team-reaction').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.tr-remove')) return;
+      const t = teams.find((tt) => tt.id === +el.dataset.team);
+      if (t && t.reaction) openReactionInfoModal(t.reaction);
+    }));
+  root.querySelectorAll('.tr-remove').forEach((btn) =>
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await api(`/api/teams/${btn.dataset.team}/reaction`, { method: 'DELETE' });
+        await load();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+  root.querySelectorAll('.team-reaction-add').forEach((btn) =>
+    btn.addEventListener('click', () => openReactionPicker(+btn.dataset.team)));
+}
+
+// ---------------------------------------------------------------- card completo (lightbox)
+function openFullCardModal(m) {
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16A9;</span> ${esc(m.name)}</h3>
+    <img src="${esc(thumbUrl(m.card_full || m.card_promo, 900))}" alt="${esc(m.name)}"
+         style="width:100%;border-radius:10px;display:block">
+    <div class="modal-actions">
+      <button class="btn" data-close>Fechar</button>
+    </div>`, { wide: true });
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
+// ---------------------------------------------------------------- reação do time
+function openReactionInfoModal(reaction) {
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> ${esc(reaction.name)}</h3>
+    <img src="${esc(thumbUrl(reaction.image, 200))}" alt="${esc(reaction.name)}"
+         style="width:120px;height:120px;display:block;margin:0 auto 14px">
+    ${reaction.description ? `<p style="color:var(--ink-2);line-height:1.6"><b>Descrição:</b> ${esc(reaction.description)}</p>` : ''}
+    ${reaction.effect ? `<p style="color:var(--ink-2);line-height:1.6"><b>Efeito in-game:</b> ${esc(reaction.effect)}</p>` : ''}
+    <div class="modal-actions">
+      <button class="btn" data-close>Fechar</button>
+    </div>`);
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
+async function openReactionPicker(teamId) {
+  const reactions = await api('/api/reactions');
+  if (!reactions.length) {
+    toast('Nenhuma reação cadastrada ainda. Cadastre em Reações primeiro.', 'error');
+    return;
+  }
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Escolher reação</h3>
+    <div class="pick-grid" id="rp-grid"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+    </div>`, { wide: true });
+  const gridEl = overlay.querySelector('#rp-grid');
+  gridEl.innerHTML = reactions.map((r) => `
+    <div class="pick-card" data-reaction="${r.id}" title="${esc(r.name)}">
+      <img src="${esc(thumbUrl(r.image, 200))}" alt="${esc(r.name)}" style="aspect-ratio:1/1;object-fit:contain;background:rgba(0,0,0,0.3)">
+      <div class="pk-name">${esc(r.name)}</div>
+    </div>`).join('');
+  gridEl.querySelectorAll('[data-reaction]').forEach((card) =>
+    card.addEventListener('click', async () => {
+      try {
+        await api(`/api/teams/${teamId}/reaction`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reaction_id: +card.dataset.reaction }),
+        });
+        closeModal(overlay);
+        await load();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
 }
 
 // ---------------------------------------------------------------- escolha de personagem p/ slot "?"

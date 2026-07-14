@@ -195,32 +195,35 @@ function elementRank(elementId) {
   return idx === -1 ? Infinity : idx;
 }
 
-// Âncora de um time para o agrupamento por elemento: o menor rank entre element1
-// e element2, para que um time misto (ex.: "Aero + Fae") fique junto do grupo do
-// elemento que vem primeiro na lista, não importa em qual dos dois slots ele foi
-// salvo — sem isso, um time cadastrado como (Fae, Aero) "escapava" do grupo Aero.
-function teamAnchorRank(t) {
-  const r1 = elementRank(t.element1.id);
-  if (!t.element2) return r1;
-  return Math.min(r1, elementRank(t.element2.id));
+// Posição do time dentro do grupo da sua PRIMEIRA tag (element1):
+//   0) Mono   — element1 + ele mesmo
+//   1) Combinado — element1 + uma segunda tag diferente
+//   2) Rainbow — element1 + random
+function groupRank(t) {
+  if (!t.element2) return 2;
+  if (t.element2.id === t.element1.id) return 0;
+  return 1;
 }
 
-// Times "Mono X" e "X Rainbow" ficam agrupados junto com os demais times do elemento X.
+// Ordena os times por elemento. A âncora do grupo é SEMPRE a primeira tag do time
+// (element1), na ordem em que os elementos aparecem em Parâmetros. Para cada elemento
+// o ciclo é: Mono → Combinados (ordenados pela 2ª tag) → Rainbow, e então recomeça
+// com o próximo elemento.
 function sortByElement(list) {
   return [...list].sort((a, b) => {
     if (!a.element1 && !b.element1) return 0;
     if (!a.element1) return 1;
     if (!b.element1) return -1;
-    const rankA = teamAnchorRank(a);
-    const rankB = teamAnchorRank(b);
+    const rankA = elementRank(a.element1.id);
+    const rankB = elementRank(b.element1.id);
     if (rankA !== rankB) return rankA - rankB;
-    const groupRank = (t) => {
-      if (!t.element2) return 2;                              // Rainbow por último no grupo
-      if (t.element2.id === t.element1.id) return 0;          // Mono primeiro
-      return 1;                                                // combinações mistas no meio
-    };
     const gA = groupRank(a), gB = groupRank(b);
     if (gA !== gB) return gA - gB;
+    // dentro dos combinados do mesmo elemento, ordena pela 2ª tag e depois pelo nome
+    if (gA === 1) {
+      const r2 = elementRank(a.element2.id) - elementRank(b.element2.id);
+      if (r2 !== 0) return r2;
+    }
     return a.name.localeCompare(b.name);
   });
 }

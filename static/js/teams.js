@@ -226,7 +226,7 @@ function sortByElement(list) {
 function initSortToggle() {
   const bar = document.getElementById('team-sort-toggle');
   if (!bar) return;
-  const saved = localStorage.getItem(SORT_KEY) || 'default';
+  const saved = localStorage.getItem(SORT_KEY) || 'element';
   bar.querySelectorAll('.seg-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.sort === saved));
   bar.querySelectorAll('.seg-btn').forEach((btn) =>
     btn.addEventListener('click', () => {
@@ -253,7 +253,7 @@ function render() {
       Nenhum time com os elementos selecionados.</div>`;
     return;
   }
-  if ((localStorage.getItem(SORT_KEY) || 'default') === 'element') visible = sortByElement(visible);
+  if ((localStorage.getItem(SORT_KEY) || 'element') === 'element') visible = sortByElement(visible);
   root.innerHTML = visible.map(teamHtml).join('');
 
   visible.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));

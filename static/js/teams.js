@@ -169,14 +169,14 @@ function teamHtml(t) {
     <div class="team-card glass">
       <div class="team-head" data-team="${t.id}">
         <div class="team-head-top">
-          <div class="team-head-left">
-            <span class="team-name">${esc(t.name)}</span>
+          <span class="team-name">${esc(t.name)}</span>
+          <div class="team-head-right">
+            <div class="team-head-actions">
+              <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
+              <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
+              <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
+            </div>
             ${reactionBadgeHtml(t)}
-          </div>
-          <div class="team-head-actions">
-            <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
-            <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
-            <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
           </div>
         </div>
         ${compositionHtml(t)}

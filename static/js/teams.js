@@ -205,10 +205,10 @@ function groupRank(t) {
   return 1;
 }
 
-// Ordena os times por elemento. A âncora do grupo é SEMPRE a primeira tag do time
-// (element1), na ordem em que os elementos aparecem em Parâmetros. Para cada elemento
-// o ciclo é: Mono → Combinados (ordenados pela 2ª tag) → Rainbow, e então recomeça
-// com o próximo elemento.
+// Ordena os times por elemento. A única chave de elemento é a PRIMEIRA tag do time
+// (element1), na ordem em que os elementos aparecem em Parâmetros — a segunda tag
+// nunca influencia o agrupamento. Para cada elemento o ciclo é:
+// Mono → Combinados → Rainbow, e então recomeça com o próximo elemento.
 function sortByElement(list) {
   return [...list].sort((a, b) => {
     if (!a.element1 && !b.element1) return 0;
@@ -219,11 +219,6 @@ function sortByElement(list) {
     if (rankA !== rankB) return rankA - rankB;
     const gA = groupRank(a), gB = groupRank(b);
     if (gA !== gB) return gA - gB;
-    // dentro dos combinados do mesmo elemento, ordena pela 2ª tag e depois pelo nome
-    if (gA === 1) {
-      const r2 = elementRank(a.element2.id) - elementRank(b.element2.id);
-      if (r2 !== 0) return r2;
-    }
     return a.name.localeCompare(b.name);
   });
 }

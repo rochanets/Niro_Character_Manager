@@ -195,15 +195,24 @@ function elementRank(elementId) {
   return idx === -1 ? Infinity : idx;
 }
 
-// Times "Mono X" e "X Rainbow" ficam agrupados junto com os demais times do elemento X
-// (a ordenação usa element1 como elemento de referência do grupo).
+// Âncora de um time para o agrupamento por elemento: o menor rank entre element1
+// e element2, para que um time misto (ex.: "Aero + Fae") fique junto do grupo do
+// elemento que vem primeiro na lista, não importa em qual dos dois slots ele foi
+// salvo — sem isso, um time cadastrado como (Fae, Aero) "escapava" do grupo Aero.
+function teamAnchorRank(t) {
+  const r1 = elementRank(t.element1.id);
+  if (!t.element2) return r1;
+  return Math.min(r1, elementRank(t.element2.id));
+}
+
+// Times "Mono X" e "X Rainbow" ficam agrupados junto com os demais times do elemento X.
 function sortByElement(list) {
   return [...list].sort((a, b) => {
     if (!a.element1 && !b.element1) return 0;
     if (!a.element1) return 1;
     if (!b.element1) return -1;
-    const rankA = elementRank(a.element1.id);
-    const rankB = elementRank(b.element1.id);
+    const rankA = teamAnchorRank(a);
+    const rankB = teamAnchorRank(b);
     if (rankA !== rankB) return rankA - rankB;
     const groupRank = (t) => {
       if (!t.element2) return 2;                              // Rainbow por último no grupo

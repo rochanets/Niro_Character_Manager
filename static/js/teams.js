@@ -165,21 +165,21 @@ function reactionBadgeHtml(t) {
 
 function teamHtml(t) {
   const nextTitle = GRADIENT_TITLES[(t.gradient_mode + 1) % GRADIENT_MODES];
+  const comp = compositionHtml(t);
+  const reaction = reactionBadgeHtml(t);
+  const compRow = (comp || reaction) ? `<div class="team-comp-row">${comp}${reaction}</div>` : '';
   return `
     <div class="team-card glass">
       <div class="team-head" data-team="${t.id}">
         <div class="team-head-top">
           <span class="team-name">${esc(t.name)}</span>
-          <div class="team-head-right">
-            <div class="team-head-actions">
-              <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
-              <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
-              <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
-            </div>
-            ${reactionBadgeHtml(t)}
+          <div class="team-head-actions">
+            <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
+            <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
+            <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
           </div>
         </div>
-        ${compositionHtml(t)}
+        ${compRow}
       </div>
       <div class="team-members">
         ${t.members.map((m, i) => memberHtml(t, m, i)).join('')}

@@ -165,21 +165,21 @@ function reactionBadgeHtml(t) {
 
 function teamHtml(t) {
   const nextTitle = GRADIENT_TITLES[(t.gradient_mode + 1) % GRADIENT_MODES];
+  const comp = compositionHtml(t);
+  const reaction = reactionBadgeHtml(t);
+  const compRow = (comp || reaction) ? `<div class="team-comp-row">${comp}${reaction}</div>` : '';
   return `
     <div class="team-card glass">
       <div class="team-head" data-team="${t.id}">
         <div class="team-head-top">
           <span class="team-name">${esc(t.name)}</span>
-          <div class="team-head-right">
-            <div class="team-head-actions">
-              <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
-              <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
-              <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
-            </div>
-            ${reactionBadgeHtml(t)}
+          <div class="team-head-actions">
+            <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
+            <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
+            <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
           </div>
         </div>
-        ${compositionHtml(t)}
+        ${compRow}
       </div>
       <div class="team-members">
         ${t.members.map((m, i) => memberHtml(t, m, i)).join('')}
@@ -195,8 +195,20 @@ function elementRank(elementId) {
   return idx === -1 ? Infinity : idx;
 }
 
-// Times "Mono X" e "X Rainbow" ficam agrupados junto com os demais times do elemento X
-// (a ordenação usa element1 como elemento de referência do grupo).
+// Posição do time dentro do grupo da sua PRIMEIRA tag (element1):
+//   0) Mono   — element1 + ele mesmo
+//   1) Combinado — element1 + uma segunda tag diferente
+//   2) Rainbow — element1 + random
+function groupRank(t) {
+  if (!t.element2) return 2;
+  if (t.element2.id === t.element1.id) return 0;
+  return 1;
+}
+
+// Ordena os times por elemento. A única chave de elemento é a PRIMEIRA tag do time
+// (element1), na ordem em que os elementos aparecem em Parâmetros — a segunda tag
+// nunca influencia o agrupamento. Para cada elemento o ciclo é:
+// Mono → Combinados → Rainbow, e então recomeça com o próximo elemento.
 function sortByElement(list) {
   return [...list].sort((a, b) => {
     if (!a.element1 && !b.element1) return 0;
@@ -205,11 +217,6 @@ function sortByElement(list) {
     const rankA = elementRank(a.element1.id);
     const rankB = elementRank(b.element1.id);
     if (rankA !== rankB) return rankA - rankB;
-    const groupRank = (t) => {
-      if (!t.element2) return 2;                              // Rainbow por último no grupo
-      if (t.element2.id === t.element1.id) return 0;          // Mono primeiro
-      return 1;                                                // combinações mistas no meio
-    };
     const gA = groupRank(a), gB = groupRank(b);
     if (gA !== gB) return gA - gB;
     return a.name.localeCompare(b.name);
@@ -219,7 +226,7 @@ function sortByElement(list) {
 function initSortToggle() {
   const bar = document.getElementById('team-sort-toggle');
   if (!bar) return;
-  const saved = localStorage.getItem(SORT_KEY) || 'default';
+  const saved = localStorage.getItem(SORT_KEY) || 'element';
   bar.querySelectorAll('.seg-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.sort === saved));
   bar.querySelectorAll('.seg-btn').forEach((btn) =>
     btn.addEventListener('click', () => {
@@ -246,7 +253,7 @@ function render() {
       Nenhum time com os elementos selecionados.</div>`;
     return;
   }
-  if ((localStorage.getItem(SORT_KEY) || 'default') === 'element') visible = sortByElement(visible);
+  if ((localStorage.getItem(SORT_KEY) || 'element') === 'element') visible = sortByElement(visible);
   root.innerHTML = visible.map(teamHtml).join('');
 
   visible.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));

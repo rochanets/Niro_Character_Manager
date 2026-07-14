@@ -3,6 +3,10 @@
 let bannerData = null;   // { versions, banners, limits }
 let allChars = null;
 
+// banners especiais começam recolhidos; guarda quais o usuário expandiu para
+// manter o estado entre re-renderizações da grade
+const expandedSpecials = new Set();
+
 async function load() {
   bannerData = await api('/api/banners');
   render();
@@ -281,17 +285,27 @@ function render() {
   }
 
   function specialBoxHtml(banner) {
+    const collapsed = !expandedSpecials.has(banner.id);
+    const fiveCount = banner.characters.filter((c) => c.rarity === 5).length;
+    const fourCount = banner.characters.filter((c) => c.rarity === 4).length;
     return `
-      <div class="banner-special">
+      <div class="banner-special ${collapsed ? 'collapsed' : ''}">
         <div class="banner-box">
-          <div class="bb-head">
-            <span class="banner-type especial">${BANNER_TYPE_LABEL.especial} &middot; ${banner.major}.${banner.minor} &middot; versão toda</span>
+          <div class="bb-head bb-head-toggle" data-toggle-special="${banner.id}"
+            title="${collapsed ? 'Expandir' : 'Recolher'} banner especial">
+            <span class="banner-type especial">
+              <span class="special-caret">${collapsed ? '▸' : '▾'}</span>
+              ${BANNER_TYPE_LABEL.especial} &middot; ${banner.major}.${banner.minor} &middot; versão toda
+              <span class="special-count">${fiveCount}×5★ &middot; ${fourCount}×4★</span>
+            </span>
             <div class="icon-btn-group">
               <button class="icon-btn" data-edit-banner="${banner.id}" title="Editar banner">&#x270E;</button>
               <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
             </div>
           </div>
-          ${charsSectionHtml(banner, { withAddBtn: true })}
+          <div class="banner-special-body">
+            ${charsSectionHtml(banner, { withAddBtn: true })}
+          </div>
         </div>
       </div>`;
   }
@@ -338,6 +352,14 @@ function render() {
       const [major, minor, half] = btn.dataset.addHalf.split('.').map(Number);
       openNewBannerModal({ major, minor, half });
     }));
+  board.querySelectorAll('[data-toggle-special]').forEach((head) =>
+    head.addEventListener('click', (e) => {
+      // cliques nos botões de editar/excluir não devem alternar o recolhimento
+      if (e.target.closest('.icon-btn')) return;
+      const id = +head.dataset.toggleSpecial;
+      if (expandedSpecials.has(id)) expandedSpecials.delete(id); else expandedSpecials.add(id);
+      render();
+    }));
   board.querySelectorAll('[data-add-special]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const [major, minor] = btn.dataset.addSpecial.split('.').map(Number);
@@ -367,7 +389,7 @@ async function openNewBannerModal(prefill, editBanner) {
   const typeOptions = [
     ['unitario', 'Unitário — 1 personagem 5★ + 3 personagens 4★'],
     ['duplo', 'Duplo — 2 personagens 5★ + 3 personagens 4★'],
-    ['especial', 'Especial — até 10 personagens 5★ + 4★ ilimitado (vale pela versão inteira)'],
+    ['especial', 'Especial — até 12 personagens 5★ + 4★ ilimitado (vale pela versão inteira)'],
   ].map(([v, label]) => `<option value="${v}" ${base && base.type === v ? 'selected' : ''}>${label}</option>`).join('');
 
   const selectHtml = (id, label, items) => `
@@ -489,14 +511,14 @@ function initEditBannerChars(overlay, bannerId) {
     return limit - inBanner;
   }
 
+  // um personagem só pode aparecer uma vez por ciclo (versão major x.*): se já
+  // está em outro banner do mesmo ciclo (x.0, x.1, x.2, ...), fica bloqueado
   function versionConflict(charId) {
     const banner = currentBanner();
-    const targetSeq = versionSeq(banner.major, banner.minor);
     for (const b of bannerData.banners) {
+      if (b.id === bannerId) continue;
       if (!b.characters.some((c) => c.id === charId)) continue;
-      const seq = versionSeq(b.major, b.minor);
-      if (seq === targetSeq && b.id !== bannerId) return `Já está na versão ${b.major}.${b.minor}`;
-      if (Math.abs(seq - targetSeq) === 1) return `Apareceu na versão ${b.major}.${b.minor} (precisa de 1 versão de intervalo)`;
+      if (b.major === banner.major) return `Já aparece no ciclo ${b.major}.x (versão ${b.major}.${b.minor})`;
     }
     return '';
   }
@@ -681,14 +703,13 @@ async function openPicker(bannerId) {
     return limit - inBanner;
   }
 
-  // versão(s) em que o personagem já apareceu, para bloquear repetição na mesma
-  // versão (outra metade) ou em versões adjacentes (precisa de 1 versão de intervalo)
+  // um personagem só pode aparecer uma vez por ciclo (versão major x.*): se já
+  // está em outro banner do mesmo ciclo (x.0, x.1, x.2, ...), fica bloqueado
   function versionConflict(charId) {
     for (const b of bannerData.banners) {
+      if (b.id === bannerId) continue;
       if (!b.characters.some((c) => c.id === charId)) continue;
-      const seq = versionSeq(b.major, b.minor);
-      if (seq === targetSeq && b.id !== bannerId) return `Já está na versão ${b.major}.${b.minor}`;
-      if (Math.abs(seq - targetSeq) === 1) return `Apareceu na versão ${b.major}.${b.minor} (precisa de 1 versão de intervalo)`;
+      if (b.major === banner.major) return `Já aparece no ciclo ${b.major}.x (versão ${b.major}.${b.minor})`;
     }
     return '';
   }

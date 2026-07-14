@@ -55,7 +55,7 @@ PARAM_TYPES = {
 BANNER_LIMITS = {
     "unitario": {5: 1, 4: 3},
     "duplo":    {5: 2, 4: 3},
-    "especial": {5: 10, 4: None},  # 4★ ilimitado em banners especiais
+    "especial": {5: 12, 4: None},  # 4★ ilimitado em banners especiais
 }
 
 TEXT_LIMITS = {
@@ -824,8 +824,9 @@ def api_banner_update(banner_id):
             conn.close()
             return jsonify(error=f"O banner tem {count} personagens {rarity}★, mas o tipo escolhido "
                                  f"permite no máximo {limit}. Remova personagens antes de mudar o tipo."), 409
-    if (major, minor) != (banner["major"], banner["minor"]):
-        target_seq = version_seq(major, minor)
+    # ao mudar de ciclo (major), garante que nenhum personagem do banner já apareça
+    # em outro banner do ciclo de destino (um personagem = uma aparição por ciclo)
+    if major != banner["major"]:
         char_ids = [r["character_id"] for r in conn.execute(
             "SELECT character_id FROM banner_characters WHERE banner_id = ?", (banner_id,)).fetchall()]
         for cid in char_ids:
@@ -833,10 +834,9 @@ def api_banner_update(banner_id):
                     """SELECT b2.major, b2.minor FROM banner_characters bc
                        JOIN banners b2 ON b2.id = bc.banner_id
                        WHERE bc.character_id = ? AND bc.banner_id != ?""", (cid, banner_id)).fetchall():
-                a_seq = version_seq(a["major"], a["minor"])
-                if a_seq == target_seq or abs(a_seq - target_seq) == 1:
+                if a["major"] == major:
                     conn.close()
-                    return jsonify(error=f"Mover para a versão {major}.{minor} entraria em conflito "
+                    return jsonify(error=f"Mover para o ciclo {major}.x entraria em conflito "
                                          f"com personagens já usados na versão {a['major']}.{a['minor']}."), 409
     if not has_version:
         conn.execute("INSERT INTO versions (major, name) VALUES (?, ?)", (major, version_name))
@@ -884,21 +884,18 @@ def api_banner_add_char(banner_id):
                     (banner_id, char_id)).fetchone():
         conn.close()
         return jsonify(error="Esse personagem já está no banner."), 409
-    target_seq = version_seq(banner["major"], banner["minor"])
+    # um personagem só pode aparecer uma vez por ciclo (versão major x.*): se já
+    # está em qualquer banner do mesmo ciclo (x.0, x.1, x.2, ...), fica bloqueado
     appearances = conn.execute(
         """SELECT b2.major, b2.minor FROM banner_characters bc
            JOIN banners b2 ON b2.id = bc.banner_id
            WHERE bc.character_id = ?""", (char_id,)).fetchall()
     for a in appearances:
-        a_seq = version_seq(a["major"], a["minor"])
-        if a_seq == target_seq:
+        if a["major"] == banner["major"]:
             conn.close()
-            return jsonify(error=f"Esse personagem já está em outro banner da versão "
-                                 f"{a['major']}.{a['minor']}."), 409
-        if abs(a_seq - target_seq) == 1:
-            conn.close()
-            return jsonify(error=f"Esse personagem apareceu na versão {a['major']}.{a['minor']} "
-                                 f"e só pode retornar a partir de duas versões depois."), 409
+            return jsonify(error=f"Esse personagem já aparece no ciclo {banner['major']}.x "
+                                 f"(versão {a['major']}.{a['minor']}) e só pode aparecer uma vez "
+                                 f"por ciclo."), 409
     count = conn.execute(
         """SELECT COUNT(*) AS n FROM banner_characters bc
            JOIN characters c ON c.id = bc.character_id
@@ -1332,8 +1329,10 @@ def api_history():
            FROM banners b ORDER BY b.major, b.minor, b.half"""
     ).fetchall()
     timeline = [b for b in banners if b["n_chars"] > 0]
+    # dropdown lista do mais recente para o mais antigo (a timeline em si, usada no
+    # cálculo de ausência, permanece em ordem crescente)
     options = [{"id": b["id"], "label": f"{b['major']}.{b['minor']} ({'1ª' if b['half'] == 1 else '2ª'})"}
-               for b in timeline]
+               for b in reversed(timeline)]
     if banner_id is None or not any(b["id"] == banner_id for b in timeline):
         conn.close()
         return jsonify(options=options, rows=None)

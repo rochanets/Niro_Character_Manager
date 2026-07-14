@@ -626,12 +626,13 @@ select option.opt-star4 { color: var(--star4); }
   border-bottom: 1px solid var(--glass-border-soft);
   transition: background 0.35s ease;
 }
-.team-head-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.team-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.team-head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.team-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .team-head .team-name {
   font-weight: 700; font-size: 16px; letter-spacing: 1.5px; color: #fff;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  flex: 1; padding-top: 4px;
 }
 .team-head-actions, .icon-btn-group { display: flex; gap: 6px; flex-shrink: 0; }
 .team-reaction {

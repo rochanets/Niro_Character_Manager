@@ -511,14 +511,14 @@ function initEditBannerChars(overlay, bannerId) {
     return limit - inBanner;
   }
 
-  // um personagem só pode aparecer uma vez por ciclo (versão major x.*): se já
-  // está em outro banner do mesmo ciclo (x.0, x.1, x.2, ...), fica bloqueado
+  // Somente aparições em banners especiais bloqueiam o personagem no ciclo.
   function versionConflict(charId) {
     const banner = currentBanner();
     for (const b of bannerData.banners) {
       if (b.id === bannerId) continue;
+      if (b.type !== 'especial') continue;
       if (!b.characters.some((c) => c.id === charId)) continue;
-      if (b.major === banner.major) return `Já aparece no ciclo ${b.major}.x (versão ${b.major}.${b.minor})`;
+      if (b.major === banner.major) return `Já aparece no banner especial da versão ${b.major}.${b.minor}`;
     }
     return '';
   }
@@ -703,13 +703,13 @@ async function openPicker(bannerId) {
     return limit - inBanner;
   }
 
-  // um personagem só pode aparecer uma vez por ciclo (versão major x.*): se já
-  // está em outro banner do mesmo ciclo (x.0, x.1, x.2, ...), fica bloqueado
+  // Somente aparições em banners especiais bloqueiam o personagem no ciclo.
   function versionConflict(charId) {
     for (const b of bannerData.banners) {
       if (b.id === bannerId) continue;
+      if (b.type !== 'especial') continue;
       if (!b.characters.some((c) => c.id === charId)) continue;
-      if (b.major === banner.major) return `Já aparece no ciclo ${b.major}.x (versão ${b.major}.${b.minor})`;
+      if (b.major === banner.major) return `Já aparece no banner especial da versão ${b.major}.${b.minor}`;
     }
     return '';
   }

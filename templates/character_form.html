@@ -89,6 +89,14 @@
         </select>
       </div>
       <div class="field">
+        <label class="field-label" for="f-edition">Edição *</label>
+        <select id="f-edition" name="edition" required>
+          <option value="Limitado" {{ 'selected' if character and character.edition == 'Limitado' }}>Limitado</option>
+          <option value="Padrão" {{ 'selected' if not character or character.edition == 'Padrão' }}>Padrão</option>
+          <option value="Inicial" {{ 'selected' if character and character.edition == 'Inicial' }}>Inicial</option>
+        </select>
+      </div>
+      <div class="field">
         <label class="field-label" for="f-profession">Profissão</label>
         <input type="text" id="f-profession" name="profession" maxlength="{{ limits.profession }}"
                value="{{ character.profession if character else '' }}">

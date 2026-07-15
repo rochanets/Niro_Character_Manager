@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS characters (
     lore           TEXT,
     role1          TEXT,
     role2          TEXT,
+    edition        TEXT NOT NULL DEFAULT 'Padrão' CHECK (edition IN ('Limitado', 'Padrão', 'Inicial')),
     card_full      TEXT,
     card_promo     TEXT,
     archived       INTEGER NOT NULL DEFAULT 0,
@@ -199,6 +200,8 @@ def init_db():
     for col in ("role1", "role2"):
         if col not in existing:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
+    if "edition" not in existing:
+        conn.execute("ALTER TABLE characters ADD COLUMN edition TEXT NOT NULL DEFAULT 'Padrão'")
     existing_teams = {row[1] for row in conn.execute("PRAGMA table_info(teams)")}
     for col in ("element1_id", "element2_id"):
         if col not in existing_teams:

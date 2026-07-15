@@ -46,6 +46,7 @@
       {% if c.weapon.name and not c.weapon.image %}<span class="badge">{{ c.weapon.name }}</span>{% endif %}
       {% if c.role1 %}<span class="badge">&#x2694; {{ c.role1 }}</span>{% endif %}
       {% if c.role2 %}<span class="badge">&#x2694; {{ c.role2 }}</span>{% endif %}
+      {% if c.edition %}<span class="badge">Edição: {{ c.edition }}</span>{% endif %}
       {% if c.age %}<span class="badge">Idade: {{ c.age }}</span>{% endif %}
       {% if c.height %}<span class="badge">Altura: {{ c.height }}</span>{% endif %}
     </div>

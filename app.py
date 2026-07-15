@@ -474,6 +474,8 @@ def parse_character_form(form, conn):
     for field in ("role1", "role2"):
         value = (form.get(field) or "").strip()
         data[field] = value if value in valid_roles else ""
+    edition = (form.get("edition") or "Padrão").strip()
+    data["edition"] = edition if edition in {"Limitado", "Padrão", "Inicial"} else "Padrão"
     data["rarity"] = int(form.get("rarity") or 0)
     return data
 
@@ -529,6 +531,10 @@ def api_character_update(char_id):
     if data["rarity"] not in (4, 5):
         conn.close()
         return jsonify(error="Escolha a raridade."), 400
+    if data["edition"] == "Inicial" and conn.execute(
+            "SELECT 1 FROM banner_characters WHERE character_id = ?", (char_id,)).fetchone():
+        conn.close()
+        return jsonify(error="Um personagem Inicial não pode ser classificado assim enquanto estiver em um banner. Remova-o dos banners primeiro."), 409
     dup = conn.execute("SELECT 1 FROM characters WHERE name = ? COLLATE NOCASE AND id != ?",
                        (data["name"], char_id)).fetchone()
     if dup:
@@ -618,7 +624,7 @@ SHEET_FIELD_MAP = {
     "idade": "age", "altura": "height", "ataque normal": "normal_attack",
     "skill 1": "skill1", "skill 2": "skill2", "ultimate": "ultimate",
     "personalidade": "personality", "lore": "lore", "dom": "dom",
-    "profissao": "profession", "role 1": "role1", "role 2": "role2",
+    "profissao": "profession", "role 1": "role1", "role 2": "role2", "edicao": "edition",
 }
 
 
@@ -719,7 +725,7 @@ def banner_payload(conn):
     banners = []
     for b in conn.execute("SELECT * FROM banners ORDER BY major, minor, half"):
         chars = conn.execute(
-            """SELECT c.id, c.name, c.rarity, c.card_promo
+            """SELECT c.id, c.name, c.rarity, c.edition, c.card_promo
                FROM banner_characters bc JOIN characters c ON c.id = bc.character_id
                WHERE bc.banner_id = ? AND c.archived = 0
                ORDER BY c.rarity DESC, c.name COLLATE NOCASE""",
@@ -781,6 +787,61 @@ def version_seq(major, minor):
     return major * 9 + minor
 
 
+def banner_character_conflict(conn, char_id, major, minor, excluded_banner_id=None):
+    """Retorna a aparição que impede o personagem de entrar na versão alvo.
+
+    Banners especiais bloqueiam durante todo o ciclo. Qualquer tipo de banner
+    bloqueia também as versões imediatamente anterior e posterior.
+    """
+    exclusion = " AND bc.banner_id != ?" if excluded_banner_id is not None else ""
+    exclusion_params = [excluded_banner_id] if excluded_banner_id is not None else []
+
+    special = conn.execute(
+        f"""SELECT b2.major, b2.minor FROM banner_characters bc
+            JOIN banners b2 ON b2.id = bc.banner_id
+            WHERE bc.character_id = ? AND b2.major = ? AND b2.type = 'especial'{exclusion}
+            LIMIT 1""",
+        [char_id, major, *exclusion_params],
+    ).fetchone()
+    if special:
+        return "especial", special
+
+    consecutive = conn.execute(
+        f"""SELECT b2.major, b2.minor FROM banner_characters bc
+            JOIN banners b2 ON b2.id = bc.banner_id
+            WHERE bc.character_id = ?
+              AND ABS((b2.major * 9 + b2.minor) - ?) = 1{exclusion}
+            LIMIT 1""",
+        [char_id, version_seq(major, minor), *exclusion_params],
+    ).fetchone()
+    if consecutive:
+        return "consecutiva", consecutive
+    return None
+
+
+def banner_character_edition_conflict(conn, char_id, banner_type, excluded_banner_id=None):
+    """Retorna uma aparição que viola a edição comercial do personagem."""
+    char = conn.execute("SELECT edition FROM characters WHERE id = ?", (char_id,)).fetchone()
+    if not char:
+        return None
+    exclusion = " AND b.id != ?" if excluded_banner_id is not None else ""
+    params = [char_id]
+    if excluded_banner_id is not None:
+        params.append(excluded_banner_id)
+
+    if char["edition"] == "Inicial":
+        return conn.execute(
+            f"""SELECT b.major, b.minor, b.type FROM banner_characters bc
+                JOIN banners b ON b.id = bc.banner_id
+                WHERE bc.character_id = ?{exclusion} LIMIT 1""", params).fetchone()
+    if char["edition"] == "Padrão" and banner_type != "especial":
+        return conn.execute(
+            f"""SELECT b.major, b.minor, b.type FROM banner_characters bc
+                JOIN banners b ON b.id = bc.banner_id
+                WHERE bc.character_id = ? AND b.type != 'especial'{exclusion} LIMIT 1""", params).fetchone()
+    return None
+
+
 @app.route("/api/banners/<int:banner_id>", methods=["PUT"])
 def api_banner_update(banner_id):
     body = request.get_json(force=True)
@@ -824,20 +885,34 @@ def api_banner_update(banner_id):
             conn.close()
             return jsonify(error=f"O banner tem {count} personagens {rarity}★, mas o tipo escolhido "
                                  f"permite no máximo {limit}. Remova personagens antes de mudar o tipo."), 409
-    # ao mudar de ciclo (major), garante que nenhum personagem do banner já apareça
-    # em outro banner do ciclo de destino (um personagem = uma aparição por ciclo)
-    if major != banner["major"]:
-        char_ids = [r["character_id"] for r in conn.execute(
-            "SELECT character_id FROM banner_characters WHERE banner_id = ?", (banner_id,)).fetchall()]
+    char_ids = [r["character_id"] for r in conn.execute(
+        "SELECT character_id FROM banner_characters WHERE banner_id = ?", (banner_id,)).fetchall()]
+    for cid in char_ids:
+        char_row = conn.execute("SELECT edition FROM characters WHERE id = ?", (cid,)).fetchone()
+        if char_row and char_row["edition"] == "Inicial":
+            conn.close()
+            return jsonify(error="Personagens com edição Inicial não podem aparecer em banners."), 409
+        edition_conflict = banner_character_edition_conflict(conn, cid, btype, banner_id)
+        if edition_conflict:
+            conn.close()
+            return jsonify(error=f"Personagens Padrão só podem aparecer uma vez em banners normais; "
+                                 f"o personagem já aparece na versão {edition_conflict['major']}.{edition_conflict['minor']}."), 409
+    # Ao mudar de versão, preserva as mesmas regras usadas na seleção: especiais
+    # bloqueiam no ciclo e qualquer aparição bloqueia versões consecutivas.
+    if (major, minor) != (banner["major"], banner["minor"]):
         for cid in char_ids:
-            for a in conn.execute(
-                    """SELECT b2.major, b2.minor FROM banner_characters bc
-                       JOIN banners b2 ON b2.id = bc.banner_id
-                       WHERE bc.character_id = ? AND bc.banner_id != ?""", (cid, banner_id)).fetchall():
-                if a["major"] == major:
-                    conn.close()
-                    return jsonify(error=f"Mover para o ciclo {major}.x entraria em conflito "
-                                         f"com personagens já usados na versão {a['major']}.{a['minor']}."), 409
+            conflict = banner_character_conflict(conn, cid, major, minor, banner_id)
+            if not conflict:
+                continue
+            reason, appearance = conflict
+            conn.close()
+            if reason == "especial":
+                return jsonify(error=f"Mover para o ciclo {major}.x entraria em conflito "
+                                     f"com personagens já usados no banner especial da versão "
+                                     f"{appearance['major']}.{appearance['minor']}."), 409
+            return jsonify(error=f"Mover para a versão {major}.{minor} entraria em conflito "
+                                 f"com personagens já usados na versão consecutiva "
+                                 f"{appearance['major']}.{appearance['minor']}."), 409
     if not has_version:
         conn.execute("INSERT INTO versions (major, name) VALUES (?, ?)", (major, version_name))
     conn.execute("UPDATE banners SET major = ?, minor = ?, half = ?, type = ? WHERE id = ?",
@@ -884,18 +959,25 @@ def api_banner_add_char(banner_id):
                     (banner_id, char_id)).fetchone():
         conn.close()
         return jsonify(error="Esse personagem já está no banner."), 409
-    # um personagem só pode aparecer uma vez por ciclo (versão major x.*): se já
-    # está em qualquer banner do mesmo ciclo (x.0, x.1, x.2, ...), fica bloqueado
-    appearances = conn.execute(
-        """SELECT b2.major, b2.minor FROM banner_characters bc
-           JOIN banners b2 ON b2.id = bc.banner_id
-           WHERE bc.character_id = ?""", (char_id,)).fetchall()
-    for a in appearances:
-        if a["major"] == banner["major"]:
-            conn.close()
-            return jsonify(error=f"Esse personagem já aparece no ciclo {banner['major']}.x "
-                                 f"(versão {a['major']}.{a['minor']}) e só pode aparecer uma vez "
-                                 f"por ciclo."), 409
+    edition_conflict = banner_character_edition_conflict(conn, char_id, banner["type"])
+    if char["edition"] == "Inicial":
+        conn.close()
+        return jsonify(error="Personagens com edição Inicial não podem aparecer em banners."), 409
+    if edition_conflict:
+        conn.close()
+        return jsonify(error=f"Personagens Padrão só podem aparecer uma vez em banners normais; "
+                             f"este já aparece na versão {edition_conflict['major']}.{edition_conflict['minor']}."), 409
+    conflict = banner_character_conflict(conn, char_id, banner["major"], banner["minor"], banner_id)
+    if conflict:
+        reason, appearance = conflict
+        conn.close()
+        if reason == "especial":
+            return jsonify(error=f"Esse personagem já aparece no banner especial da versão "
+                                 f"{appearance['major']}.{appearance['minor']} e não pode ser "
+                                 f"escolhido novamente no ciclo {banner['major']}.x."), 409
+        return jsonify(error=f"Esse personagem já aparece na versão consecutiva "
+                             f"{appearance['major']}.{appearance['minor']} e não pode ser "
+                             f"escolhido para a versão {banner['major']}.{banner['minor']}."), 409
     count = conn.execute(
         """SELECT COUNT(*) AS n FROM banner_characters bc
            JOIN characters c ON c.id = bc.character_id
@@ -1395,7 +1477,7 @@ AI_FIELD_SPECS = {
 }
 
 FIELD_LABELS_PT = {
-    "name": "Nome", "age": "Idade", "height": "Altura", "rarity": "Raridade",
+    "name": "Nome", "age": "Idade", "height": "Altura", "rarity": "Raridade", "edition": "Edição",
     "region": "Região", "affiliation": "Afiliação", "element": "Elemento", "weapon": "Arma",
     "role1": "Role 1 (função em combate)", "role2": "Role 2 (função secundária)",
     "dom": "Dom", "normal_attack": "Ataque Normal", "skill1": "Skill 1", "skill2": "Skill 2",

@@ -23,6 +23,17 @@ function appearanceCount(charId, targetSeq) {
     versionSeq(b.major, b.minor) <= targetSeq && b.characters.some((c) => c.id === charId)).length;
 }
 
+function characterVersionConflict(targetBanner, excludedBannerId, charId) {
+  const appearances = bannerData.banners.filter((b) =>
+    b.id !== excludedBannerId && b.characters.some((c) => c.id === charId));
+  const special = appearances.find((b) => b.type === 'especial' && b.major === targetBanner.major);
+  if (special) return `Já aparece no banner especial da versão ${special.major}.${special.minor}`;
+  const targetSeq = versionSeq(targetBanner.major, targetBanner.minor);
+  const consecutive = appearances.find((b) => Math.abs(versionSeq(b.major, b.minor) - targetSeq) === 1);
+  if (consecutive) return `Já aparece na versão consecutiva ${consecutive.major}.${consecutive.minor}`;
+  return '';
+}
+
 // ---------------------------------------------------------------- popover de histórico por raridade (hover no picker)
 let histPopover = null;
 
@@ -511,16 +522,8 @@ function initEditBannerChars(overlay, bannerId) {
     return limit - inBanner;
   }
 
-  // Somente aparições em banners especiais bloqueiam o personagem no ciclo.
   function versionConflict(charId) {
-    const banner = currentBanner();
-    for (const b of bannerData.banners) {
-      if (b.id === bannerId) continue;
-      if (b.type !== 'especial') continue;
-      if (!b.characters.some((c) => c.id === charId)) continue;
-      if (b.major === banner.major) return `Já aparece no banner especial da versão ${b.major}.${b.minor}`;
-    }
-    return '';
+    return characterVersionConflict(currentBanner(), bannerId, charId);
   }
 
   function renderChars() {
@@ -703,15 +706,8 @@ async function openPicker(bannerId) {
     return limit - inBanner;
   }
 
-  // Somente aparições em banners especiais bloqueiam o personagem no ciclo.
   function versionConflict(charId) {
-    for (const b of bannerData.banners) {
-      if (b.id === bannerId) continue;
-      if (b.type !== 'especial') continue;
-      if (!b.characters.some((c) => c.id === charId)) continue;
-      if (b.major === banner.major) return `Já aparece no banner especial da versão ${b.major}.${b.minor}`;
-    }
-    return '';
+    return characterVersionConflict(banner, bannerId, charId);
   }
 
   function renderGrid() {

@@ -181,6 +181,27 @@ function isBannerFull(banner) {
   return banner.characters.length >= maxTotal;
 }
 
+function characterEditionConflict(targetBanner, excludedBannerId, charId) {
+  const character = allChars.find((c) => c.id === charId);
+  if (!character) return '';
+  if (character.edition === 'Inicial') return 'Personagens com edição Inicial não podem aparecer em banners';
+  if (character.edition !== 'Padrão' || targetBanner.type === 'especial') return '';
+  const previous = bannerData.banners.find((b) =>
+    b.id !== excludedBannerId && b.type !== 'especial' && b.characters.some((c) => c.id === charId));
+  return previous
+    ? `Edição Padrão: já aparece no banner ${previous.major}.${previous.minor}`
+    : '';
+}
+
+function pickState(banner, char, inBannerIds, full, versionConflict) {
+  const already = inBannerIds.has(char.id);
+  const editionConflict = !already ? characterEditionConflict(banner, banner.id, char.id) : '';
+  const conflict = !already && !full && !editionConflict ? versionConflict : '';
+  const reason = already ? 'Já está no banner'
+    : editionConflict || (full ? `Limite de ${char.rarity}★ atingido` : conflict);
+  return { already, disabled: Boolean(reason), reason };
+}
+
 // menor versão (major.minor) em que o personagem aparece em algum banner —
 // usado para saber se ESTE banner é a estreia dele (primeira vez que aparece)
 function firstAppearanceSeq(charId) {
@@ -568,25 +589,23 @@ function initEditBannerChars(overlay, bannerId) {
     }
     const banner = currentBanner();
     const targetSeq = versionSeq(banner.major, banner.minor);
-    if (sortByWait) {
-      const gaps = appearanceGapMap(banner.major, banner.minor);
-      chars.sort((a, b) => gaps[b.id] - gaps[a.id] || a.name.localeCompare(b.name));
-    }
-    grid.innerHTML = chars.map((c) => {
-      const already = inBannerIds.has(c.id);
+    const gaps = sortByWait ? appearanceGapMap(banner.major, banner.minor) : null;
+    const rows = chars.map((c) => {
       const full = slotsLeft(c.rarity) <= 0;
-      const conflict = !already && !full ? versionConflict(c.id) : '';
-      const disabled = already || full || !!conflict;
-      const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
+      const state = pickState(banner, c, inBannerIds, full, versionConflict(c.id));
       const count = appearanceCount(c.id, targetSeq);
-      return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
+      return { c, state, count };
+    });
+    rows.sort((a, b) => Number(a.state.disabled) - Number(b.state.disabled)
+      || (sortByWait ? gaps[b.c.id] - gaps[a.c.id] : 0)
+      || a.c.name.localeCompare(b.c.name));
+    grid.innerHTML = rows.map(({ c, state, count }) => `
+        <div class="pick-card ${state.disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${state.reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
-        </div>`;
-    }).join('');
+        </div>`).join('');
 
     grid.querySelectorAll('.pick-card:not(.disabled)').forEach((card) =>
       card.addEventListener('click', async () => {
@@ -735,25 +754,23 @@ async function openPicker(bannerId) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:30px">Nenhum personagem encontrado.</div>';
       return;
     }
-    if (sortByWait) {
-      const gaps = appearanceGapMap(banner.major, banner.minor);
-      chars.sort((a, b) => gaps[b.id] - gaps[a.id] || a.name.localeCompare(b.name));
-    }
-    grid.innerHTML = chars.map((c) => {
-      const already = inBannerIds.has(c.id);
+    const gaps = sortByWait ? appearanceGapMap(banner.major, banner.minor) : null;
+    const rows = chars.map((c) => {
       const full = slotsLeft(c.rarity) <= 0;
-      const conflict = !already && !full ? versionConflict(c.id) : '';
-      const disabled = already || full || !!conflict;
-      const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : conflict;
+      const state = pickState(banner, c, inBannerIds, full, versionConflict(c.id));
       const count = appearanceCount(c.id, targetSeq);
-      return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${reason || esc(c.name)}">
+      return { c, state, count };
+    });
+    rows.sort((a, b) => Number(a.state.disabled) - Number(b.state.disabled)
+      || (sortByWait ? gaps[b.c.id] - gaps[a.c.id] : 0)
+      || a.c.name.localeCompare(b.c.name));
+    grid.innerHTML = rows.map(({ c, state, count }) => `
+        <div class="pick-card ${state.disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${state.reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
-        </div>`;
-    }).join('');
+        </div>`).join('');
 
     grid.querySelectorAll('.pick-card:not(.disabled)').forEach((card) =>
       card.addEventListener('click', async () => {

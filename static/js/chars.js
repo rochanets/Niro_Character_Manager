@@ -6,7 +6,7 @@ const activeDims = new Set();   // dimensões de agrupamento selecionadas
 let sortAlpha = false;
 let searchTerm = '';
 // filtros por valor específico, combináveis entre si (AND) — independentes do agrupamento
-const filters = { region: '', affiliation: '', element: '', weapon: '', rarity: '' };
+const filters = { region: '', affiliation: '', element: '', weapon: '', rarity: '', role: '' };
 
 const DIM_VALUE = {
   region:      (c) => c.region.name || 'Sem região',
@@ -14,13 +14,23 @@ const DIM_VALUE = {
   element:     (c) => c.element.name || 'Sem elemento',
   weapon:      (c) => c.weapon.name || 'Sem arma',
   rarity:      (c) => (c.rarity === 5 ? '5 Estrelas' : '4 Estrelas'),
+  role:        (c) => [c.role1, c.role2].filter(Boolean).join(' · ') || 'Sem role',
 };
 
 // Todos os valores possíveis de cada dimensão, para detectar combinações
 // que ainda não têm nenhum personagem cadastrado.
 function dimValues(dim) {
   if (dim === 'rarity') return ['5 Estrelas', '4 Estrelas'];
+  if (dim === 'role') return [...new Set([...(allParams.role || []).map((p) => p.name), 'Sem role'])];
   return (allParams[dim] || []).map((p) => p.name);
+}
+
+function charDimValues(c, dim) {
+  if (dim === 'role') {
+    const roles = [...new Set([c.role1, c.role2].filter(Boolean))];
+    return roles.length ? roles : ['Sem role'];
+  }
+  return [DIM_VALUE[dim](c)];
 }
 
 // ---------------------------------------------------------------- persistência dos agrupamentos
@@ -48,12 +58,15 @@ function saveGroupingState() {
 // preenche as opções dos selects de filtro com os valores cadastrados em Parâmetros
 // e aplica o filtro salvo (se houver)
 function populateFilterSelects() {
-  ['region', 'affiliation', 'element', 'weapon'].forEach((dim) => {
+  ['region', 'affiliation', 'element', 'weapon', 'role'].forEach((dim) => {
     const sel = document.getElementById(`f-${dim}`);
-    (allParams[dim] || []).forEach((p) => {
+    // Esta função também é chamada ao limpar filtros: reconstrua as opções
+    // para que a lista nunca acumule duplicatas.
+    while (sel.options.length > 1) sel.remove(1);
+    [...new Set((allParams[dim] || []).map((p) => p.name))].forEach((value) => {
       const opt = document.createElement('option');
-      opt.value = p.name;
-      opt.textContent = p.name;
+      opt.value = value;
+      opt.textContent = value;
       sel.appendChild(opt);
     });
     sel.value = filters[dim];
@@ -92,6 +105,7 @@ function render() {
     if (filters.element && (c.element.name || '') !== filters.element) return false;
     if (filters.weapon && (c.weapon.name || '') !== filters.weapon) return false;
     if (filters.rarity && String(c.rarity) !== filters.rarity) return false;
+    if (filters.role && c.role1 !== filters.role && c.role2 !== filters.role) return false;
     return true;
   });
 
@@ -111,12 +125,19 @@ function render() {
   }
 
   // Com filtros: containers pela combinação das dimensões selecionadas
-  const dims = ['region', 'affiliation', 'element', 'weapon', 'rarity'].filter((d) => activeDims.has(d));
+  const dims = ['region', 'affiliation', 'element', 'weapon', 'rarity', 'role'].filter((d) => activeDims.has(d));
   const groups = new Map();
   for (const c of chars) {
-    const key = dims.map((d) => DIM_VALUE[d](c)).join(' · ');
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(c);
+    let combinations = [[]];
+    for (const dim of dims) {
+      combinations = combinations.flatMap((combo) =>
+        charDimValues(c, dim).map((value) => [...combo, value]));
+    }
+    for (const combination of combinations) {
+      const key = combination.join(' · ');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
   }
   const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   area.innerHTML = keys.map((key) => `
@@ -179,7 +200,7 @@ document.getElementById('search').addEventListener('input', function () {
   render();
 });
 
-['region', 'affiliation', 'element', 'weapon', 'rarity'].forEach((dim) => {
+['region', 'affiliation', 'element', 'weapon', 'rarity', 'role'].forEach((dim) => {
   document.getElementById(`f-${dim}`).addEventListener('change', function () {
     filters[dim] = this.value;
     saveGroupingState();

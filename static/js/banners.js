@@ -26,6 +26,9 @@ function appearanceCount(charId, targetSeq) {
 function characterVersionConflict(targetBanner, excludedBannerId, charId) {
   const appearances = bannerData.banners.filter((b) =>
     b.id !== excludedBannerId && b.characters.some((c) => c.id === charId));
+  const sameVersion = appearances.find((b) =>
+    b.major === targetBanner.major && b.minor === targetBanner.minor);
+  if (sameVersion) return `Já aparece na outra metade da versão ${sameVersion.major}.${sameVersion.minor}`;
   const special = appearances.find((b) => b.type === 'especial' && b.major === targetBanner.major);
   if (special) return `Já aparece no banner especial da versão ${special.major}.${special.minor}`;
   const targetSeq = versionSeq(targetBanner.major, targetBanner.minor);

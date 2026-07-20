@@ -790,11 +790,23 @@ def version_seq(major, minor):
 def banner_character_conflict(conn, char_id, major, minor, excluded_banner_id=None):
     """Retorna a aparição que impede o personagem de entrar na versão alvo.
 
-    Banners especiais bloqueiam durante todo o ciclo. Qualquer tipo de banner
-    bloqueia também as versões imediatamente anterior e posterior.
+    Um personagem não pode aparecer em duas metades da mesma versão. Banners
+    especiais bloqueiam durante todo o ciclo. Qualquer tipo de banner bloqueia
+    também as versões imediatamente anterior e posterior.
     """
     exclusion = " AND bc.banner_id != ?" if excluded_banner_id is not None else ""
     exclusion_params = [excluded_banner_id] if excluded_banner_id is not None else []
+
+    same_version = conn.execute(
+        f"""SELECT b2.major, b2.minor FROM banner_characters bc
+            JOIN banners b2 ON b2.id = bc.banner_id
+            WHERE bc.character_id = ?
+              AND b2.major = ? AND b2.minor = ?{exclusion}
+            LIMIT 1""",
+        [char_id, major, minor, *exclusion_params],
+    ).fetchone()
+    if same_version:
+        return "mesma_versao", same_version
 
     special = conn.execute(
         f"""SELECT b2.major, b2.minor FROM banner_characters bc
@@ -897,8 +909,9 @@ def api_banner_update(banner_id):
             conn.close()
             return jsonify(error=f"Personagens Padrão só podem aparecer uma vez em banners normais; "
                                  f"o personagem já aparece na versão {edition_conflict['major']}.{edition_conflict['minor']}."), 409
-    # Ao mudar de versão, preserva as mesmas regras usadas na seleção: especiais
-    # bloqueiam no ciclo e qualquer aparição bloqueia versões consecutivas.
+    # Ao mudar de versão, preserva as mesmas regras usadas na seleção: uma
+    # aparição bloqueia a mesma versão, especiais bloqueiam o ciclo e qualquer
+    # aparição bloqueia versões consecutivas.
     if (major, minor) != (banner["major"], banner["minor"]):
         for cid in char_ids:
             conflict = banner_character_conflict(conn, cid, major, minor, banner_id)
@@ -906,6 +919,9 @@ def api_banner_update(banner_id):
                 continue
             reason, appearance = conflict
             conn.close()
+            if reason == "mesma_versao":
+                return jsonify(error=f"Mover para a versão {major}.{minor} entraria em conflito "
+                                     f"com personagem já usado na outra metade da mesma versão."), 409
             if reason == "especial":
                 return jsonify(error=f"Mover para o ciclo {major}.x entraria em conflito "
                                      f"com personagens já usados no banner especial da versão "
@@ -971,6 +987,10 @@ def api_banner_add_char(banner_id):
     if conflict:
         reason, appearance = conflict
         conn.close()
+        if reason == "mesma_versao":
+            return jsonify(error=f"Esse personagem já aparece na outra metade da versão "
+                                 f"{banner['major']}.{banner['minor']} e não pode ser escolhido "
+                                 "novamente nesta versão."), 409
         if reason == "especial":
             return jsonify(error=f"Esse personagem já aparece no banner especial da versão "
                                  f"{appearance['major']}.{appearance['minor']} e não pode ser "

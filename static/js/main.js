@@ -34,10 +34,10 @@ function toast(message, type = '') {
 }
 
 // ---------------------------------------------------------------- modal
-function openModal(html, { wide = false } = {}) {
+function openModal(html, { wide = false, picker = false } = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = `<div class="modal ${wide ? 'wide' : ''}">${html}</div>`;
+  overlay.innerHTML = `<div class="modal ${wide ? 'wide' : ''} ${picker ? 'picker' : ''}">${html}</div>`;
   overlay.addEventListener('mousedown', (e) => {
     if (e.target === overlay) overlay.remove();
   });

@@ -6,9 +6,9 @@
   <title>{% block title %}Niro Character Manager{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-  <!-- Ícone / favicon -->
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/favicon-32.png') }}">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x16DE;</text></svg>">
+  <!-- Ícone da aba do navegador (favicon) -->
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icons/favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192.png') }}">
 
   <!-- Instalável como app (iOS Safari + Android) -->
   <meta name="theme-color" content="#0d0d1a">

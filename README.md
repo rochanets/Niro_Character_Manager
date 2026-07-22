@@ -47,7 +47,7 @@ Com a versão on-line no ar, dá para usar como se fosse um app:
 
 1. Abra o link público (Railway) no **Safari** do iPhone.
 2. Toque em **Compartilhar** → **Adicionar à Tela de Início**.
-3. O atalho aparece com o ícone da runa de Niro e abre em **tela cheia** (sem a barra do Safari).
+3. O atalho aparece com o ícone do Niro e abre em **tela cheia** (sem a barra do Safari).
 
 A interface é responsiva: no celular o menu vira uma barra inferior de navegação.
 

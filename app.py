@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -751,35 +752,25 @@ def _upload_rel_parts(member):
     return rel
 
 
-@app.route("/api/backup/import", methods=["POST"])
-def api_backup_import():
-    """Restaura um backup .zip: substitui o banco atual pelo enviado e mescla as
-    imagens. Usado para carregar na nuvem os dados construídos localmente."""
-    file = request.files.get("backup")
-    if not file or not file.filename:
-        return jsonify(error="Envie o arquivo .zip de backup."), 400
-    if not file.filename.lower().endswith(".zip"):
-        return jsonify(error="Formato inválido. Envie o arquivo .zip gerado pela exportação."), 400
+class BackupError(Exception):
+    """Erro de validação/conteúdo de um backup (vira HTTP 400)."""
 
-    tmp_zip = None
+
+def _run_backup_import(zip_path):
+    """Aplica um backup a partir de um .zip já gravado em disco: substitui o banco
+    e mescla as imagens. Devolve (images, characters). Lança BackupError em falha
+    de validação. Uso de memória constante (lê tudo do disco por streaming)."""
     tmp_db = DB_PATH + ".import"
     try:
-        # Grava o upload em disco por streaming — não carrega o zip inteiro na
-        # memória. Backups grandes carregados na RAM podiam estourar o limite de
-        # memória do container e derrubar o worker (o navegador via "Failed to fetch").
-        fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(tmp_db))
-        os.close(fd)
-        file.save(tmp_zip)
-
         try:
-            zf = zipfile.ZipFile(tmp_zip)
+            zf = zipfile.ZipFile(zip_path)
         except zipfile.BadZipFile:
-            return jsonify(error="Arquivo .zip inválido ou corrompido."), 400
+            raise BackupError("Arquivo .zip inválido ou corrompido.")
 
         with zf:
             db_member = _find_db_member(zf)
             if db_member is None:
-                return jsonify(error="O .zip não contém o banco de dados (niro.db)."), 400
+                raise BackupError("O .zip não contém o banco de dados (niro.db).")
 
             # Extrai o banco num arquivo temporário e valida antes de substituir o atual.
             with zf.open(db_member) as src, open(tmp_db, "wb") as dst:
@@ -791,7 +782,7 @@ def api_backup_import():
                 finally:
                     test.close()
             except Exception:
-                return jsonify(error="O banco enviado não é um niro.db válido."), 400
+                raise BackupError("O banco enviado não é um niro.db válido.")
 
             # Extrai as imagens (com proteção contra path traversal / zip slip).
             images = 0
@@ -820,14 +811,94 @@ def api_backup_import():
         conn = get_db()
         total = conn.execute("SELECT COUNT(*) AS n FROM characters").fetchone()["n"]
         conn.close()
-        return jsonify(ok=True, images=images, characters=total)
+        return images, total
     finally:
-        for tmp in (tmp_zip, tmp_db):
-            if tmp and os.path.isfile(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+        if tmp_db and os.path.isfile(tmp_db):
+            try:
+                os.remove(tmp_db)
+            except OSError:
+                pass
+
+
+@app.route("/api/backup/import", methods=["POST"])
+def api_backup_import():
+    """Restaura um backup .zip enviado num único request (adequado a arquivos
+    pequenos). Para backups grandes, o front-end usa o upload em partes abaixo,
+    que evita o limite de tamanho de corpo do proxy/edge da hospedagem."""
+    file = request.files.get("backup")
+    if not file or not file.filename:
+        return jsonify(error="Envie o arquivo .zip de backup."), 400
+    if not file.filename.lower().endswith(".zip"):
+        return jsonify(error="Formato inválido. Envie o arquivo .zip gerado pela exportação."), 400
+
+    fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(DB_PATH))
+    os.close(fd)
+    try:
+        file.save(tmp_zip)  # streaming em disco, sem carregar tudo na memória
+        images, total = _run_backup_import(tmp_zip)
+        return jsonify(ok=True, images=images, characters=total)
+    except BackupError as exc:
+        return jsonify(error=str(exc)), 400
+    finally:
+        if os.path.isfile(tmp_zip):
+            try:
+                os.remove(tmp_zip)
+            except OSError:
+                pass
+
+
+# ---- Upload em partes (chunked): contorna o limite de tamanho do edge/proxy ----
+
+IMPORT_PARTS_DIR = os.path.join(DATA_DIR, ".import_parts")
+
+
+def _import_part_path(upload_id):
+    """Caminho do arquivo remontado para um upload em partes. Valida o id para
+    impedir path traversal (só hex)."""
+    if not re.fullmatch(r"[a-f0-9]{8,64}", upload_id or ""):
+        abort(400)
+    os.makedirs(IMPORT_PARTS_DIR, exist_ok=True)
+    return os.path.join(IMPORT_PARTS_DIR, upload_id + ".part")
+
+
+@app.route("/api/backup/import_chunk", methods=["POST"])
+def api_backup_import_chunk():
+    """Recebe um pedaço do .zip e o anexa ao arquivo temporário do upload.
+    index=0 inicia (trunca) o arquivo; os demais são anexados em ordem."""
+    upload_id = request.args.get("upload_id", "")
+    index = request.args.get("index", type=int)
+    path = _import_part_path(upload_id)
+    if index is None or index < 0:
+        return jsonify(error="Índice de parte inválido."), 400
+    # Integridade de ordem: o tamanho atual deve bater com o esperado.
+    current = os.path.getsize(path) if os.path.isfile(path) else 0
+    if index == 0:
+        open(path, "wb").close()  # reinicia
+        current = 0
+    chunk = request.get_data(cache=False)
+    with open(path, "ab") as f:
+        f.write(chunk)
+    return jsonify(ok=True, received=len(chunk), size=current + len(chunk))
+
+
+@app.route("/api/backup/import_finalize", methods=["POST"])
+def api_backup_import_finalize():
+    """Conclui um upload em partes: aplica o .zip remontado como backup."""
+    upload_id = request.args.get("upload_id", "")
+    path = _import_part_path(upload_id)
+    if not os.path.isfile(path):
+        return jsonify(error="Upload não encontrado. Refaça o envio."), 400
+    try:
+        images, total = _run_backup_import(path)
+        return jsonify(ok=True, images=images, characters=total)
+    except BackupError as exc:
+        return jsonify(error=str(exc)), 400
+    finally:
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------- thumbnails

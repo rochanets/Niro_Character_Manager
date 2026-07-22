@@ -41,6 +41,16 @@ Depois de subir a versão on-line (que começa com o banco vazio), leve seus dad
 
 O mesmo botão de exportação também serve como backup periódico do sistema (local ou on-line).
 
+### Instalar no iPhone (ícone na tela de início)
+
+Com a versão on-line no ar, dá para usar como se fosse um app:
+
+1. Abra o link público (Railway) no **Safari** do iPhone.
+2. Toque em **Compartilhar** → **Adicionar à Tela de Início**.
+3. O atalho aparece com o ícone da runa de Niro e abre em **tela cheia** (sem a barra do Safari).
+
+A interface é responsiva: no celular o menu vira uma barra inferior de navegação.
+
 ## Módulos
 
 | Módulo | Descrição |

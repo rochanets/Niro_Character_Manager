@@ -2,6 +2,7 @@
 
 let bannerData = null;   // { versions, banners, limits }
 let allChars = null;
+let allTeams = null;
 
 // banners especiais começam recolhidos; guarda quais o usuário expandiu para
 // manter o estado entre re-renderizações da grade
@@ -682,9 +683,78 @@ function deleteBanner(bannerId) {
   };
 }
 
+// ---------------------------------------------------------------- painel lateral do picker
+// ícones (distintos) dos elementos que compõem o time onde o personagem está,
+// para facilitar identificar o time de relance
+function teamElementTagsHtml(team) {
+  const seen = new Set();
+  const tags = [];
+  team.members.forEach((m) => {
+    if (!m || !m.element_image || seen.has(m.element_name)) return;
+    seen.add(m.element_name);
+    tags.push(`<img class="sc-elem-tag" src="${esc(thumbUrl(m.element_image, 48))}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`);
+  });
+  return tags.length ? `<span class="sc-elem-tags">${tags.join('')}</span>` : '';
+}
+
+// cartão de um personagem já incluído em um banner: mostra elemento, arma e o
+// time (com as tags de elemento do time) ao qual o personagem está cadastrado
+function sideCharCardHtml(c) {
+  const full = allChars.find((x) => x.id === c.id);
+  const element = full && full.element && full.element.name ? full.element.name : '—';
+  const elemImg = full && full.element && full.element.image
+    ? `<img class="sc-elem" src="${esc(thumbUrl(full.element.image, 48))}" alt="" title="${esc(element)}">` : '';
+  const weapon = full && full.weapon && full.weapon.name ? full.weapon.name : '—';
+  const team = allTeams.find((t) => t.members.some((m) => m && m.id === c.id));
+  return `
+    <div class="side-char-card">
+      <img class="sc-thumb" src="${esc(thumbUrl(c.card_promo, 120))}" alt="${esc(c.name)}">
+      <div class="side-char-info">
+        <div class="sc-name">${esc(c.name)}</div>
+        <div class="sc-meta">${elemImg}${esc(element)} &middot; ${esc(weapon)}</div>
+        <div class="sc-team">
+          <span class="sc-team-name">${team ? esc(team.name) : 'Sem time'}</span>
+          ${team ? teamElementTagsHtml(team) : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+// bloco de um banner no painel lateral: título + personagens já incluídos
+function sideBannerBlockHtml(b, title) {
+  const chars = b ? b.characters : [];
+  return `
+    <div class="side-block">
+      <h4>${esc(title)}</h4>
+      ${chars.length
+        ? chars.map(sideCharCardHtml).join('')
+        : '<div class="side-empty">Nenhum personagem ainda.</div>'}
+    </div>`;
+}
+
+// banners "irmãos" da mesma versão x.y (a outra metade e eventuais especiais),
+// que compõem o mesmo ciclo do banner que estamos montando
+function siblingBannersOf(banner) {
+  return bannerData.banners
+    .filter((b) => b.major === banner.major && b.minor === banner.minor && b.id !== banner.id)
+    .sort((a, b) => (a.half || 3) - (b.half || 3));
+}
+
+function pickSideHtml(bannerId) {
+  const current = bannerData.banners.find((b) => b.id === bannerId);
+  const siblings = siblingBannersOf(current);
+  const currentTitle = `Neste banner · ${current.major}.${current.minor} (${halfLabelText(current.half)})`;
+  const siblingsHtml = siblings.length
+    ? siblings.map((b) => sideBannerBlockHtml(b, `${b.major}.${b.minor} (${halfLabelText(b.half)})`)).join('')
+    : `<div class="side-block"><h4>Outra metade do ciclo</h4>
+         <div class="side-empty">Nenhum outro banner nesta versão ${current.major}.${current.minor} ainda.</div></div>`;
+  return sideBannerBlockHtml(current, currentTitle) + siblingsHtml;
+}
+
 // ---------------------------------------------------------------- modal de seleção
 async function openPicker(bannerId) {
   if (!allChars) allChars = await api('/api/characters');
+  if (!allTeams) allTeams = await api('/api/teams');
   const banner = bannerData.banners.find((b) => b.id === bannerId);
   const params = await api('/api/params');
 
@@ -697,20 +767,27 @@ async function openPicker(bannerId) {
     <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor} (${halfLabelText(banner.half)})
       <span style="font-size:12px;color:var(--ink-3);font-weight:400">(${BANNER_TYPE_LABEL[banner.type]})</span>
     </h3>
-    <div class="pick-filters">
-      <input type="text" id="pk-search" placeholder="Buscar nome...">
-      ${selectHtml('pk-region', 'Região', params.region)}
-      ${selectHtml('pk-affiliation', 'Afiliação', params.affiliation)}
-      ${selectHtml('pk-element', 'Elemento', params.element)}
-      ${selectHtml('pk-weapon', 'Arma', params.weapon)}
-      <select id="pk-rarity"><option value="">Raridade: todas</option>
-        <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
-      </select>
-      <button type="button" class="btn small" id="pk-sort" title="Ordenar por quem está há mais tempo sem aparecer em banners">&#x21C5; Mais tempo sem aparecer</button>
-    </div>
-    <div class="pick-grid" id="pk-grid"></div>`, { wide: true });
+    <div class="pick-layout">
+      <div class="pick-main">
+        <div class="pick-filters">
+          <input type="text" id="pk-search" placeholder="Buscar nome...">
+          ${selectHtml('pk-region', 'Região', params.region)}
+          ${selectHtml('pk-affiliation', 'Afiliação', params.affiliation)}
+          ${selectHtml('pk-element', 'Elemento', params.element)}
+          ${selectHtml('pk-weapon', 'Arma', params.weapon)}
+          <select id="pk-rarity"><option value="">Raridade: todas</option>
+            <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
+          </select>
+          <button type="button" class="btn small" id="pk-sort" title="Ordenar por quem está há mais tempo sem aparecer em banners">&#x21C5; Mais tempo sem aparecer</button>
+        </div>
+        <div class="pick-grid" id="pk-grid"></div>
+      </div>
+      <div class="pick-side" id="pk-side">${pickSideHtml(bannerId)}</div>
+    </div>`, { wide: true, picker: true });
 
   const grid = overlay.querySelector('#pk-grid');
+  const sidePanel = overlay.querySelector('#pk-side');
+  const refreshSide = () => { sidePanel.innerHTML = pickSideHtml(bannerId); };
   const targetSeq = versionSeq(banner.major, banner.minor);
   let sortByWait = false;
   const sortBtn = overlay.querySelector('#pk-sort');
@@ -785,6 +862,7 @@ async function openPicker(bannerId) {
           });
           await load();
           renderGrid();
+          refreshSide();
         } catch (err) { toast(err.message, 'error'); }
       }));
     attachRarityHistoryHover(grid, () => ({ major: banner.major, minor: banner.minor, half: banner.half || 2 }));

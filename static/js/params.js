@@ -45,6 +45,12 @@ function renderData() {
           <input type="file" id="backup-file" accept=".zip">
           <button class="btn primary" id="import-btn">&#x2191; Importar backup</button>
         </div>
+        <div id="import-progress" style="display:none;margin-top:12px">
+          <div style="height:8px;border-radius:6px;background:var(--glass);overflow:hidden">
+            <div id="import-bar" style="height:100%;width:0;background:var(--accent);transition:width .2s"></div>
+          </div>
+          <div id="import-status" style="font-size:12px;color:var(--ink-2);margin-top:6px"></div>
+        </div>
       </div>
     </div>`;
 
@@ -53,21 +59,62 @@ function renderData() {
     const file = fileInput.files && fileInput.files[0];
     if (!file) return toast('Selecione o arquivo .zip de backup.', 'error');
     if (!confirm('Isto vai SUBSTITUIR o banco de dados atual pelos dados do backup. Deseja continuar?')) return;
-    const fd = new FormData();
-    fd.append('backup', file);
     const btn = box.querySelector('#import-btn');
+    const progress = box.querySelector('#import-progress');
+    const bar = box.querySelector('#import-bar');
+    const status = box.querySelector('#import-status');
     btn.disabled = true;
     btn.textContent = 'Importando…';
+    progress.style.display = 'block';
     try {
-      const res = await api('/api/backup/import', { method: 'POST', body: fd });
+      const res = await uploadBackupInChunks(file, (sent, total) => {
+        const pct = Math.round((sent / total) * 100);
+        bar.style.width = pct + '%';
+        status.textContent = `Enviando… ${pct}% (${fmtMB(sent)} / ${fmtMB(total)} MB)`;
+      });
+      bar.style.width = '100%';
+      status.textContent = 'Aplicando backup no servidor…';
       toast(`Backup importado: ${res.characters} personagem(ns) e ${res.images} imagem(ns).`, 'success');
-      setTimeout(() => window.location.reload(), 1200);
+      setTimeout(() => window.location.reload(), 1400);
     } catch (err) {
       toast(err.message, 'error');
       btn.disabled = false;
       btn.innerHTML = '&#x2191; Importar backup';
+      status.textContent = 'Falha no envio: ' + err.message;
     }
   });
+}
+
+function fmtMB(bytes) {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+// Envia o .zip em partes de ~4 MB para contornar o limite de tamanho de corpo
+// do edge/proxy da hospedagem, e só então dispara a aplicação do backup.
+async function uploadBackupInChunks(file, onProgress) {
+  const CHUNK = 4 * 1024 * 1024;
+  const uploadId = (crypto.randomUUID
+    ? crypto.randomUUID().replace(/-/g, '')
+    : (Date.now().toString(16) + Math.random().toString(16).slice(2))).slice(0, 32);
+  let sent = 0;
+  let index = 0;
+  while (sent < file.size) {
+    const blob = file.slice(sent, sent + CHUNK);
+    const resp = await fetch(`/api/backup/import_chunk?upload_id=${uploadId}&index=${index}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: blob,
+    });
+    if (!resp.ok) {
+      let msg = `Erro ${resp.status} ao enviar parte ${index + 1}`;
+      try { const b = await resp.json(); if (b && b.error) msg = b.error; } catch (_) {}
+      throw new Error(msg);
+    }
+    sent += blob.size;
+    index += 1;
+    if (onProgress) onProgress(sent, file.size);
+  }
+  return api(`/api/backup/import_finalize?upload_id=${uploadId}`, { method: 'POST' });
 }
 
 function renderAdd() {

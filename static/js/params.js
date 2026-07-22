@@ -13,9 +13,61 @@ let allParams = {};
 let addImageInput = null;
 
 async function load() {
+  if (currentType === 'data') { renderData(); return; }
   allParams = await api('/api/params');
   renderAdd();
   renderList();
+}
+
+// ---------------------------------------------------------------- aba Dados (backup)
+function renderData() {
+  document.getElementById('param-list').innerHTML = '';
+  const box = document.getElementById('param-add');
+  box.innerHTML = `
+    <div class="data-panel">
+      <div class="data-block">
+        <h3 style="margin:0 0 6px">Exportar backup</h3>
+        <p style="color:var(--ink-2);line-height:1.6;margin:0 0 12px">
+          Baixe um arquivo <b>.zip</b> com o banco de dados e todas as imagens.
+          Use-o como backup ou para migrar os dados locais para a versão on-line.
+        </p>
+        <a class="btn primary" href="/api/backup/export" download>&#x2193; Baixar backup (.zip)</a>
+      </div>
+      <div class="rune-divider" aria-hidden="true" style="margin:22px 0">&#x16A0; &#x16B1; &#x16C7; &#x16D2; &#x16DE;</div>
+      <div class="data-block">
+        <h3 style="margin:0 0 6px">Importar backup</h3>
+        <p style="color:var(--ink-2);line-height:1.6;margin:0 0 12px">
+          Envie um <b>.zip</b> exportado (contendo <code>niro.db</code> e a pasta
+          <code>uploads/</code>). <b style="color:var(--danger,#e05a5a)">Atenção:</b>
+          isto <b>substitui</b> o banco de dados atual e mescla as imagens.
+        </p>
+        <div class="row" style="align-items:center;gap:12px">
+          <input type="file" id="backup-file" accept=".zip">
+          <button class="btn primary" id="import-btn">&#x2191; Importar backup</button>
+        </div>
+      </div>
+    </div>`;
+
+  const fileInput = box.querySelector('#backup-file');
+  box.querySelector('#import-btn').addEventListener('click', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return toast('Selecione o arquivo .zip de backup.', 'error');
+    if (!confirm('Isto vai SUBSTITUIR o banco de dados atual pelos dados do backup. Deseja continuar?')) return;
+    const fd = new FormData();
+    fd.append('backup', file);
+    const btn = box.querySelector('#import-btn');
+    btn.disabled = true;
+    btn.textContent = 'Importando…';
+    try {
+      const res = await api('/api/backup/import', { method: 'POST', body: fd });
+      toast(`Backup importado: ${res.characters} personagem(ns) e ${res.images} imagem(ns).`, 'success');
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.innerHTML = '&#x2191; Importar backup';
+    }
+  });
 }
 
 function renderAdd() {
@@ -177,8 +229,12 @@ document.querySelectorAll('#param-tabs .tab').forEach((tab) => {
     document.querySelectorAll('#param-tabs .tab').forEach((t) => t.classList.remove('active'));
     tab.classList.add('active');
     currentType = tab.dataset.type;
-    renderAdd();
-    renderList();
+    if (currentType === 'data') {
+      renderData();
+    } else {
+      renderAdd();
+      renderList();
+    }
   });
 });
 

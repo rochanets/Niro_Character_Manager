@@ -19,6 +19,28 @@ cp .env.example .env   # e edite a chave
 python app.py
 ```
 
+## Hospedagem on-line (Railway)
+
+O sistema roda tanto localmente quanto hospedado na nuvem. No [Railway](https://railway.app):
+
+1. **Crie o projeto** a partir deste repositório do GitHub (New Project → Deploy from GitHub repo). O Railway detecta o Python e usa o `Procfile`/`railway.json` para subir com **gunicorn** automaticamente.
+2. **Adicione um volume persistente** ao serviço (aba *Variables/Settings → Volumes*) com mount path, por exemplo, `/data`. Isso é **essencial**: o disco do container é efêmero e, sem o volume, o banco e as imagens seriam perdidos a cada deploy.
+3. **Configure as variáveis de ambiente** do serviço:
+   - `DATA_DIR=/data` — mesmo mount path do volume (guarda o `niro.db` e a pasta `uploads/`).
+   - `GOOGLE_AI_API_KEY=<sua chave>` — para o preenchimento por IA (opcional).
+   - `GOOGLE_AI_MODEL=gemini-flash-latest` — opcional.
+   - `PORT` é fornecida automaticamente pelo Railway; não precisa definir.
+4. **Gere o domínio público** (Settings → Networking → Generate Domain) e acesse. Não há login — o sistema fica aberto, conforme o uso pessoal pretendido.
+
+### Migrando os dados locais para a nuvem
+
+Depois de subir a versão on-line (que começa com o banco vazio), leve seus dados locais:
+
+1. Na sua máquina, abra o sistema local, vá em **Parâmetros → Dados** e clique em **Baixar backup (.zip)**. O arquivo contém o `niro.db` e todas as imagens.
+2. Na versão on-line, abra **Parâmetros → Dados**, selecione esse `.zip` em **Importar backup** e confirme. Isso **substitui** o banco e mescla as imagens.
+
+O mesmo botão de exportação também serve como backup periódico do sistema (local ou on-line).
+
 ## Módulos
 
 | Módulo | Descrição |

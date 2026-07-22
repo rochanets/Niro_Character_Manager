@@ -3,8 +3,19 @@ import sqlite3
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "niro.db")
-UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
+
+# DATA_DIR permite guardar o banco e as imagens fora do código-fonte — essencial
+# em hospedagens com filesystem efêmero (ex.: Railway), onde esse diretório deve
+# apontar para um volume persistente. Sem DATA_DIR, mantém-se o layout local
+# tradicional (banco na raiz e imagens em static/uploads).
+_DATA_ENV = (os.environ.get("DATA_DIR") or "").strip()
+DATA_DIR = os.path.abspath(_DATA_ENV) if _DATA_ENV else BASE_DIR
+if _DATA_ENV:
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+DB_PATH = os.path.join(DATA_DIR, "niro.db")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads") if _DATA_ENV \
+    else os.path.join(BASE_DIR, "static", "uploads")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS regions (

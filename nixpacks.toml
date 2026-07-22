@@ -1,0 +1,5 @@
+# Força o start com gunicorn (servidor de produção) escutando em 0.0.0.0:$PORT,
+# evitando que o Railway caia no servidor de desenvolvimento do Flask
+# (que escuta em 127.0.0.1 e fica inalcançável pelo proxy).
+[start]
+cmd = "gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 4 --timeout 300"

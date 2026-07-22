@@ -1800,9 +1800,16 @@ def find_free_port(preferred=3004, tries=50):
 
 if __name__ == "__main__":
     purge_expired_archive()
-    port = int(os.environ.get("PORT") or find_free_port(3004))
-    host = os.environ.get("HOST", "127.0.0.1")
-    if host in ("127.0.0.1", "localhost"):
+    # Detecta ambiente de nuvem (Railway define PORT e/ou variáveis RAILWAY_*).
+    # Na nuvem é obrigatório escutar em 0.0.0.0 na porta fornecida, senão o proxy
+    # não alcança o app ("Application failed to respond"). Localmente mantém
+    # 127.0.0.1 e abre o navegador. O ideal em produção é o gunicorn (Procfile),
+    # mas este bloco garante funcionamento mesmo se o app.py for o entrypoint.
+    in_cloud = bool(os.environ.get("PORT") or os.environ.get("RAILWAY_ENVIRONMENT")
+                    or os.environ.get("RAILWAY_PROJECT_ID") or os.environ.get("RAILWAY_SERVICE_ID"))
+    host = os.environ.get("HOST") or ("0.0.0.0" if in_cloud else "127.0.0.1")
+    port = int(os.environ.get("PORT") or (8080 if in_cloud else find_free_port(3004)))
+    if not in_cloud:
         threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{port}")).start()
     print(f"\n  Niro Character Manager rodando em http://{host}:{port}\n")
     app.run(host=host, port=port, debug=False)

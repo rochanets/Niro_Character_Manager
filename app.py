@@ -17,9 +17,11 @@ from uuid import uuid4
 import requests
 from dotenv import load_dotenv
 from flask import (Flask, Response, abort, got_request_exception, jsonify, redirect,
-                   render_template, request, send_file, stream_with_context, url_for)
+                   render_template, request, send_file, send_from_directory,
+                   stream_with_context, url_for)
 
-from db import BASE_DIR, DB_PATH, UPLOAD_DIR, delete_upload, get_db, init_db, purge_expired_archive
+from db import (BASE_DIR, DATA_DIR, DB_PATH, UPLOAD_DIR, delete_upload, get_db,
+                init_db, purge_expired_archive)
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
@@ -158,6 +160,17 @@ LEFT JOIN affiliations a ON a.id = c.affiliation_id
 LEFT JOIN elements e     ON e.id = c.element_id
 LEFT JOIN weapons w      ON w.id = c.weapon_id
 """
+
+
+# ---------------------------------------------------------------- uploads
+
+@app.route("/static/uploads/<path:rel>")
+def serve_upload(rel):
+    """Serve as imagens enviadas a partir do UPLOAD_DIR (que pode estar num volume
+    persistente fora de static/). Mantém as URLs /static/uploads/... já usadas
+    pelos templates e pelo front-end. Esta rota é mais específica que a estática
+    padrão do Flask, então tem precedência para esse prefixo."""
+    return send_from_directory(UPLOAD_DIR, rel)
 
 
 # ---------------------------------------------------------------- páginas
@@ -683,6 +696,124 @@ def api_import_sheet():
     return jsonify(rows=rows)
 
 
+# ---------------------------------------------------------------- API: backup (banco + imagens)
+
+BACKUP_KNOWN_SUBDIRS = {"characters", "elements", "weapons"}
+
+
+@app.route("/api/backup/export")
+def api_backup_export():
+    """Gera um .zip com o banco (niro.db) e todas as imagens de uploads/, para
+    servir de backup e de ponte na migração dos dados locais para a nuvem."""
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as zf:
+        if os.path.isfile(DB_PATH):
+            zf.write(DB_PATH, "niro.db")
+        if os.path.isdir(UPLOAD_DIR):
+            for root, dirs, files in os.walk(UPLOAD_DIR):
+                dirs[:] = [d for d in dirs if d != ".thumbs"]
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    rel = os.path.relpath(full, UPLOAD_DIR)
+                    zf.write(full, "uploads/" + rel.replace(os.sep, "/"))
+    mem.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return send_file(mem, mimetype="application/zip", as_attachment=True,
+                     download_name=f"niro-backup-{stamp}.zip")
+
+
+def _find_db_member(zf):
+    for name in zf.namelist():
+        if os.path.basename(name) == "niro.db":
+            return name
+    for name in zf.namelist():
+        if name.lower().endswith(".db") and not name.endswith("/"):
+            return name
+    return None
+
+
+def _upload_rel_parts(member):
+    """A partir do caminho de um membro do zip, devolve a lista de segmentos
+    relativos a uploads/ (ex.: ['characters', 'x.png']) ou None se o membro não
+    for uma imagem de upload / não for seguro."""
+    if member.endswith("/"):
+        return None
+    parts = [p for p in member.replace("\\", "/").split("/") if p not in ("", ".")]
+    if ".." in parts:
+        return None
+    if "uploads" in parts:
+        rel = parts[parts.index("uploads") + 1:]
+    else:
+        anchor = next((i for i, p in enumerate(parts) if p in BACKUP_KNOWN_SUBDIRS), None)
+        rel = parts[anchor:] if anchor is not None else None
+    if not rel or rel[0] == ".thumbs":
+        return None
+    return rel
+
+
+@app.route("/api/backup/import", methods=["POST"])
+def api_backup_import():
+    """Restaura um backup .zip: substitui o banco atual pelo enviado e mescla as
+    imagens. Usado para carregar na nuvem os dados construídos localmente."""
+    file = request.files.get("backup")
+    if not file or not file.filename:
+        return jsonify(error="Envie o arquivo .zip de backup."), 400
+    if not file.filename.lower().endswith(".zip"):
+        return jsonify(error="Formato inválido. Envie o arquivo .zip gerado pela exportação."), 400
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(file.read()))
+    except zipfile.BadZipFile:
+        return jsonify(error="Arquivo .zip inválido ou corrompido."), 400
+
+    with zf:
+        db_member = _find_db_member(zf)
+        if db_member is None:
+            return jsonify(error="O .zip não contém o banco de dados (niro.db)."), 400
+
+        # Escreve o banco num arquivo temporário e valida antes de substituir o atual.
+        tmp_db = DB_PATH + ".import"
+        try:
+            with zf.open(db_member) as src, open(tmp_db, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            test = sqlite3.connect(tmp_db)
+            try:
+                test.execute("SELECT 1 FROM characters LIMIT 1").fetchone()
+            finally:
+                test.close()
+        except Exception:
+            if os.path.isfile(tmp_db):
+                os.remove(tmp_db)
+            return jsonify(error="O banco enviado não é um niro.db válido."), 400
+
+        # Extrai as imagens (com proteção contra path traversal / zip slip).
+        images = 0
+        uploads_root = os.path.normpath(UPLOAD_DIR)
+        for member in zf.namelist():
+            rel = _upload_rel_parts(member)
+            if rel is None:
+                continue
+            dest = os.path.normpath(os.path.join(UPLOAD_DIR, *rel))
+            if not dest.startswith(uploads_root + os.sep):
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with zf.open(member) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+            images += 1
+
+    # Substitui o banco atomicamente e limpa o cache de miniaturas.
+    os.replace(tmp_db, DB_PATH)
+    thumb_dir = os.path.join(UPLOAD_DIR, ".thumbs")
+    if os.path.isdir(thumb_dir):
+        shutil.rmtree(thumb_dir, ignore_errors=True)
+
+    # Garante que o schema/migrações estejam aplicados ao banco importado.
+    init_db()
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) AS n FROM characters").fetchone()["n"]
+    conn.close()
+    return jsonify(ok=True, images=images, characters=total)
+
+
 # ---------------------------------------------------------------- thumbnails
 
 THUMB_DIR = os.path.join(UPLOAD_DIR, ".thumbs")
@@ -693,12 +824,13 @@ def thumb_image(rel, width):
     """Serve uma versão reduzida (LANCZOS, alta qualidade) das imagens enviadas,
     evitando a distorção do downscale feito pelo navegador em imagens grandes."""
     width = max(16, min(width, 1600))
-    src = os.path.normpath(os.path.join(BASE_DIR, "static", rel.replace("/", os.sep)))
+    # rel chega como "uploads/<subdir>/<arquivo>"; resolve dentro do DATA_DIR.
+    src = os.path.normpath(os.path.join(DATA_DIR, rel.replace("/", os.sep)))
     uploads_root = os.path.normpath(UPLOAD_DIR)
     if not src.startswith(uploads_root + os.sep) or not os.path.isfile(src):
         abort(404)
     if os.path.splitext(src)[1].lower() == ".gif":  # preserva animação
-        return redirect(url_for("static", filename=rel))
+        return redirect("/static/" + rel)
     key = hashlib.sha1(f"{rel}|{width}".encode()).hexdigest() + ".webp"
     dest = os.path.join(THUMB_DIR, key)
     if not os.path.isfile(dest) or os.path.getmtime(dest) < os.path.getmtime(src):
@@ -712,7 +844,7 @@ def thumb_image(rel, width):
                 os.makedirs(THUMB_DIR, exist_ok=True)
                 img.save(dest, "WEBP", quality=92, method=6)
         except Exception:
-            return redirect(url_for("static", filename=rel))
+            return redirect("/static/" + rel)
     resp = send_file(dest, mimetype="image/webp", conditional=True)
     resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
@@ -1647,6 +1779,11 @@ def api_logs_clear():
 
 # ---------------------------------------------------------------- bootstrap
 
+# Executado tanto no import (gunicorn/Railway) quanto na execução local, para
+# garantir schema, migrações e diretórios de upload antes de atender requisições.
+init_db()
+
+
 def find_free_port(preferred=3004, tries=50):
     for port in range(preferred, preferred + tries):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -1659,9 +1796,10 @@ def find_free_port(preferred=3004, tries=50):
 
 
 if __name__ == "__main__":
-    init_db()
     purge_expired_archive()
-    port = find_free_port(3004)
-    threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{port}")).start()
-    print(f"\n  Niro Character Manager rodando em http://localhost:{port}\n")
-    app.run(host="127.0.0.1", port=port, debug=False)
+    port = int(os.environ.get("PORT") or find_free_port(3004))
+    host = os.environ.get("HOST", "127.0.0.1")
+    if host in ("127.0.0.1", "localhost"):
+        threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{port}")).start()
+    print(f"\n  Niro Character Manager rodando em http://{host}:{port}\n")
+    app.run(host=host, port=port, debug=False)

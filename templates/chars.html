@@ -10,16 +10,32 @@
 </div>
 
 <div class="toolbar glass">
-  <span class="lbl">Filtrar por</span>
+  <span class="lbl">Agrupar por</span>
   <span class="chip" data-dim="region">Região</span>
   <span class="chip" data-dim="affiliation">Afiliação</span>
   <span class="chip" data-dim="element">Elemento</span>
   <span class="chip" data-dim="weapon">Arma</span>
   <span class="chip" data-dim="rarity">Raridade</span>
+  <span class="chip" data-dim="role">Role</span>
   <span class="lbl" style="margin-left:12px">Ordenar</span>
   <span class="chip violet" id="sort-chip">A &rarr; Z</span>
   <span class="spacer"></span>
   <input type="text" id="search" placeholder="Buscar por nome...">
+</div>
+
+<div class="toolbar glass filter-bar">
+  <span class="lbl">Filtrar por</span>
+  <select id="f-region"><option value="">Região: todas</option></select>
+  <select id="f-affiliation"><option value="">Afiliação: todas</option></select>
+  <select id="f-element"><option value="">Elemento: todos</option></select>
+  <select id="f-weapon"><option value="">Arma: todas</option></select>
+  <select id="f-rarity">
+    <option value="">Raridade: todas</option>
+    <option value="5">5 Estrelas</option>
+    <option value="4">4 Estrelas</option>
+  </select>
+  <select id="f-role"><option value="">Role: todas</option></select>
+  <button type="button" class="btn small" id="clear-filters">Limpar filtros</button>
 </div>
 
 <div id="chars-area">

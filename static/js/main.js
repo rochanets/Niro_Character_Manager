@@ -34,10 +34,10 @@ function toast(message, type = '') {
 }
 
 // ---------------------------------------------------------------- modal
-function openModal(html, { wide = false } = {}) {
+function openModal(html, { wide = false, picker = false } = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = `<div class="modal ${wide ? 'wide' : ''}">${html}</div>`;
+  overlay.innerHTML = `<div class="modal ${wide ? 'wide' : ''} ${picker ? 'picker' : ''}">${html}</div>`;
   overlay.addEventListener('mousedown', (e) => {
     if (e.target === overlay) overlay.remove();
   });
@@ -162,4 +162,75 @@ const BANNER_TYPE_LABEL = { unitario: 'Unitário', duplo: 'Duplo', especial: 'Es
 
 function starsHtml(rarity) {
   return `<span class="cc-stars stars-${rarity}">${RARITY_LABEL[rarity] || ''}</span>`;
+}
+
+// ---------------------------------------------------------------- cor representativa de um elemento
+// Usada para tingir textos/gradientes de acordo com o elemento (Times, Reações).
+// Cores extraídas do ícone às vezes ficam parecidas demais entre elementos (ex.: Psy/Electro
+// e Aero/Aqua são todos arroxeados/azulados); por isso alguns têm cor fixa aqui.
+const ELEMENT_COLOR_OVERRIDES = {
+  fae:     'hsl(330 75% 82% / 0.85)',  // rosa bebê, em vez do rosa escuro extraído do ícone
+  electro: 'hsl(262 75% 34% / 0.85)',  // roxo bem mais escuro que o Psy
+  psy:     'hsl(280 70% 72% / 0.85)',  // roxo bem mais claro que o Electro
+  aqua:    'hsl(212 88% 27% / 0.85)',  // azul escuro/marinho, distante do Aero
+  aero:    'hsl(190 70% 58% / 0.85)',  // ciano claro, distante do Aqua
+};
+
+const _imageColorCache = new Map();
+
+function imageColor(url) {
+  if (_imageColorCache.has(url)) return _imageColorCache.get(url);
+  const promise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 24;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, size, size);
+      let data;
+      try { data = ctx.getImageData(0, 0, size, size).data; } catch (_) { return resolve(null); }
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 60) continue;                       // ignora transparência
+        const R = data[i], G = data[i + 1], B = data[i + 2];
+        const w = 1 + (Math.max(R, G, B) - Math.min(R, G, B)) / 24;  // pixels vivos pesam mais
+        r += R * w; g += G * w; b += B * w; n += w;
+      }
+      resolve(n ? [r / n, g / n, b / n] : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+  _imageColorCache.set(url, promise);
+  return promise;
+}
+
+function vividColor([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (d > 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  s = Math.min(1, s * 1.35 + 0.1);
+  const L = Math.min(0.55, Math.max(0.34, l));
+  return `hsl(${h.toFixed(0)} ${(s * 100).toFixed(0)}% ${(L * 100).toFixed(0)}% / 0.85)`;
+}
+
+// Cor representativa de um elemento ({name, image}): usa override manual quando existir,
+// senão extrai do ícone.
+async function elementColor(element) {
+  if (!element) return null;
+  const override = ELEMENT_COLOR_OVERRIDES[(element.name || '').trim().toLowerCase()];
+  if (override) return override;
+  if (!element.image) return null;
+  const rgb = await imageColor(`/static/${element.image}`);
+  return rgb ? vividColor(rgb) : null;
 }

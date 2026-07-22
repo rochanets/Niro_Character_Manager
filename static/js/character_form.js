@@ -20,7 +20,7 @@ document.querySelectorAll('.char-count').forEach((counter) => {
 function collectData() {
   const data = {};
   ['name', 'age', 'height', 'dom', 'normal_attack', 'skill1', 'skill2',
-   'ultimate', 'personality', 'profession', 'lore', 'role1', 'role2'].forEach((f) => {
+   'ultimate', 'personality', 'profession', 'lore', 'role1', 'role2', 'edition'].forEach((f) => {
     data[f] = form.elements[f].value.trim();
   });
   ['region', 'affiliation', 'element', 'weapon'].forEach((f) => {
@@ -168,6 +168,11 @@ function applySheetRow(row) {
     else skipped.push(`Role ${i + 1} "${row[f]}"`);
   });
 
+  if (row.edition !== undefined) {
+    if (selectByText(form.elements.edition, row.edition)) filled++;
+    else skipped.push(`Edição "${row.edition}"`);
+  }
+
   if (row.rarity === '4' || row.rarity === '5') {
     form.elements.rarity.value = row.rarity;
     filled++;
@@ -194,7 +199,7 @@ form.addEventListener('submit', async (e) => {
 
   const fd = new FormData();
   ['name', 'age', 'height', 'dom', 'normal_attack', 'skill1', 'skill2',
-   'ultimate', 'personality', 'profession', 'lore', 'role1', 'role2'].forEach((f) => fd.append(f, data[f]));
+   'ultimate', 'personality', 'profession', 'lore', 'role1', 'role2', 'edition'].forEach((f) => fd.append(f, data[f]));
   ['region_id', 'affiliation_id', 'element_id', 'weapon_id'].forEach((f) => fd.append(f, data[f]));
   fd.append('rarity', data._rarity_raw);
   if (iiFull.file) fd.append('card_full', iiFull.file);

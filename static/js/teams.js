@@ -13,10 +13,60 @@ const GRADIENT_TITLES = [
 
 let teams = null;
 let allChars = null;
+let allElements = null;
+const selectedElementFilters = new Set();
+
+// ---------------------------------------------------------------- colunas do grid
+const COLS_KEY = 'niro-team-grid-cols';
+
+function applyGridCols(cols) {
+  document.getElementById('team-grid').classList.toggle('cols-4', cols === 4);
+  document.querySelectorAll('#team-cols-toggle .seg-btn').forEach((btn) =>
+    btn.classList.toggle('active', +btn.dataset.cols === cols));
+}
+
+function initGridColsToggle() {
+  const saved = +localStorage.getItem(COLS_KEY) || 2;
+  applyGridCols(saved);
+  document.querySelectorAll('#team-cols-toggle .seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const cols = +btn.dataset.cols;
+      localStorage.setItem(COLS_KEY, cols);
+      applyGridCols(cols);
+    }));
+}
+initGridColsToggle();
 
 async function load() {
-  [teams, allChars] = await Promise.all([api('/api/teams'), api('/api/characters')]);
+  const [t, c, params] = await Promise.all([api('/api/teams'), api('/api/characters'), api('/api/params')]);
+  teams = t;
+  allChars = c;
+  allElements = params.element;
+  renderElementFilterBar();
   render();
+}
+
+// ---------------------------------------------------------------- filtro por tag de elemento
+function teamHasElement(t, elementId) {
+  return (t.element1 && t.element1.id === elementId) || (t.element2 && t.element2.id === elementId);
+}
+
+function renderElementFilterBar() {
+  const bar = document.getElementById('elem-filter-bar');
+  if (!allElements.length) { bar.innerHTML = ''; return; }
+  bar.innerHTML = allElements.map((e) => `
+    <button type="button" class="elem-filter-tag${selectedElementFilters.has(e.id) ? ' active' : ''}" data-elem="${e.id}" title="Filtrar times com ${esc(e.name)}">
+      ${e.image ? `<img src="/static/${esc(e.image)}" alt="">` : ''}
+      <span>${esc(e.name)}</span>
+    </button>`).join('');
+  bar.querySelectorAll('[data-elem]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const id = +btn.dataset.elem;
+      if (selectedElementFilters.has(id)) selectedElementFilters.delete(id);
+      else selectedElementFilters.add(id);
+      renderElementFilterBar();
+      render();
+    }));
 }
 
 function usedCharIds() {
@@ -26,57 +76,12 @@ function usedCharIds() {
 }
 
 // ---------------------------------------------------------------- cor dos elementos
-const _colorCache = new Map();
-
-function imageColor(url) {
-  if (_colorCache.has(url)) return _colorCache.get(url);
-  const promise = new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const size = 24;
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, size, size);
-      let data;
-      try { data = ctx.getImageData(0, 0, size, size).data; } catch (_) { return resolve(null); }
-      let r = 0, g = 0, b = 0, n = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] < 60) continue;                       // ignora transparência
-        const R = data[i], G = data[i + 1], B = data[i + 2];
-        const w = 1 + (Math.max(R, G, B) - Math.min(R, G, B)) / 24;  // pixels vivos pesam mais
-        r += R * w; g += G * w; b += B * w; n += w;
-      }
-      resolve(n ? [r / n, g / n, b / n] : null);
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-  _colorCache.set(url, promise);
-  return promise;
-}
-
-function vivid([r, g, b]) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-  const l = (max + min) / 2;
-  let h = 0;
-  let s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  if (d > 0) {
-    if (max === r) h = ((g - b) / d) % 6;
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  s = Math.min(1, s * 1.35 + 0.1);
-  const L = Math.min(0.55, Math.max(0.34, l));
-  return `hsl(${h.toFixed(0)} ${(s * 100).toFixed(0)}% ${(L * 100).toFixed(0)}% / 0.85)`;
-}
+// imageColor/vividColor/elementColor e as cores fixas de ELEMENT_COLOR_OVERRIDES
+// vivem em main.js (compartilhadas com o módulo Reações).
 
 function gradientCss(colors, mode) {
   if (!colors.length) {
-    colors = ['rgba(90, 215, 232, 0.22)', 'rgba(167, 139, 250, 0.22)'];
+    colors = ['rgba(20, 66, 168, 0.32)', 'rgba(137, 207, 244, 0.28)'];
   } else if (colors.length === 1) {
     colors = [colors[0], colors[0]];
   }
@@ -92,52 +97,145 @@ function gradientCss(colors, mode) {
 
 async function applyGradient(team, headEl) {
   if (!headEl) return;
-  const urls = team.members
-    .filter((m) => m && m.element_image)
-    .map((m) => `/static/${m.element_image}`);
-  const colors = (await Promise.all(urls.map(imageColor))).filter(Boolean).map(vivid);
+  const withImg = team.members.filter((m) => m && m.element_image);
+  const colors = (await Promise.all(withImg.map((m) =>
+    elementColor({ name: m.element_name, image: m.element_image })))).filter(Boolean);
   headEl.style.background = gradientCss(colors, team.gradient_mode);
 }
 
 // ---------------------------------------------------------------- exibição
-function memberHtml(team, m) {
+function memberHtml(team, m, slot) {
   if (!m) {
     return `
       <div class="team-member">
-        <div class="tm-card mystery">?</div>
+        <div class="tm-card mystery" data-team="${team.id}" data-slot="${slot}" title="Escolher personagem para este slot">?</div>
         <div class="tm-name">???</div>
       </div>`;
   }
   const elem = m.element_image
-    ? `<img class="tm-elem" src="/static/${esc(m.element_image)}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`
+    ? `<img class="tm-elem" src="${esc(thumbUrl(m.element_image, 64))}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`
     : '<span class="tm-elem"></span>';
+  const roles = [m.role1, m.role2].filter(Boolean);
+  const rolesHtml = roles.length
+    ? `<div class="tm-roles">${roles.map((r) => `<span class="tm-role">${esc(r)}</span>`).join('')}</div>`
+    : '';
   return `
     <div class="team-member">
-      <div class="tm-card r${m.rarity}">
-        <img src="/static/${esc(m.card_promo)}" alt="${esc(m.name)}" loading="lazy">
+      <div class="tm-card r${m.rarity}" data-team="${team.id}" data-open-full="${m.id}" title="Ver card completo">
+        <img src="${esc(thumbUrl(m.card_promo, 480))}" alt="${esc(m.name)}" loading="lazy">
         <button class="tm-remove" data-team="${team.id}" data-char="${m.id}" title="Remover do time">&#x2715;</button>
       </div>
       <div class="tm-name" title="${esc(m.name)}">${esc(m.name)}</div>
       ${elem}
+      ${rolesHtml}
     </div>`;
+}
+
+function compTagHtml(el) {
+  const img = el.image ? `<img src="${esc(thumbUrl(el.image, 40))}" alt="${esc(el.name)}">` : '';
+  return `<span class="comp-tag">${img}${esc(el.name)}</span>`;
+}
+
+function compositionHtml(t) {
+  if (!t.element1) return '';
+  const mono = t.element2 && t.element1.id === t.element2.id;
+  if (mono) {
+    const img = t.element1.image ? `<img src="${esc(thumbUrl(t.element1.image, 40))}" alt="${esc(t.element1.name)}">` : '';
+    return `<div class="team-comp-tags"><span class="comp-tag mono">${img}MONO ${esc(t.element1.name.toUpperCase())}</span></div>`;
+  }
+  if (!t.element2) {
+    const img = t.element1.image ? `<img src="${esc(thumbUrl(t.element1.image, 40))}" alt="${esc(t.element1.name)}">` : '';
+    return `<div class="team-comp-tags"><span class="comp-tag rainbow">${img}${esc(t.element1.name.toUpperCase())} RAINBOW</span></div>`;
+  }
+  return `<div class="team-comp-tags">${compTagHtml(t.element1)}${compTagHtml(t.element2)}</div>`;
+}
+
+function reactionBadgeHtml(t) {
+  if (!t.element1 || !t.element2 || t.element1.id === t.element2.id) return '';
+  if (t.reaction) {
+    return `
+      <div class="team-reaction" data-team="${t.id}" data-reaction="${t.reaction.id}" title="${esc(t.reaction.name)}">
+        <img src="${esc(thumbUrl(t.reaction.image, 64))}" alt="${esc(t.reaction.name)}">
+        <span class="tr-name">${esc(t.reaction.name)}</span>
+        <button class="tr-remove" data-team="${t.id}" title="Remover reação deste time">&#x2715;</button>
+      </div>`;
+  }
+  return `<button class="team-reaction-add" data-team="${t.id}" title="Vincular uma reação a este time">+</button>`;
 }
 
 function teamHtml(t) {
   const nextTitle = GRADIENT_TITLES[(t.gradient_mode + 1) % GRADIENT_MODES];
+  const comp = compositionHtml(t);
+  const reaction = reactionBadgeHtml(t);
+  const compRow = (comp || reaction) ? `<div class="team-comp-row">${comp}${reaction}</div>` : '';
   return `
     <div class="team-card glass">
       <div class="team-head" data-team="${t.id}">
-        <span class="team-name">${esc(t.name)}</span>
-        <div class="team-head-actions">
-          <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
-          <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
+        <div class="team-head-top">
+          <span class="team-name">${esc(t.name)}</span>
+          <div class="team-head-actions">
+            <button class="icon-btn" data-grad="${t.id}" title="Mudar gradiente (próximo: ${nextTitle})">&#x25D1;</button>
+            <button class="icon-btn" data-edit="${t.id}" title="Editar time">&#x270E;</button>
+            <button class="icon-btn danger" data-delete="${t.id}" title="Excluir time">&#x2715;</button>
+          </div>
         </div>
+        ${compRow}
       </div>
       <div class="team-members">
-        ${t.members.map((m) => memberHtml(t, m)).join('')}
+        ${t.members.map((m, i) => memberHtml(t, m, i)).join('')}
       </div>
     </div>`;
 }
+
+// ---------------------------------------------------------------- ordenação
+const SORT_KEY = 'niro-team-sort';
+
+function elementRank(elementId) {
+  const idx = (allElements || []).findIndex((e) => e.id === elementId);
+  return idx === -1 ? Infinity : idx;
+}
+
+// Posição do time dentro do grupo da sua PRIMEIRA tag (element1):
+//   0) Mono   — element1 + ele mesmo
+//   1) Combinado — element1 + uma segunda tag diferente
+//   2) Rainbow — element1 + random
+function groupRank(t) {
+  if (!t.element2) return 2;
+  if (t.element2.id === t.element1.id) return 0;
+  return 1;
+}
+
+// Ordena os times por elemento. A única chave de elemento é a PRIMEIRA tag do time
+// (element1), na ordem em que os elementos aparecem em Parâmetros — a segunda tag
+// nunca influencia o agrupamento. Para cada elemento o ciclo é:
+// Mono → Combinados → Rainbow, e então recomeça com o próximo elemento.
+function sortByElement(list) {
+  return [...list].sort((a, b) => {
+    if (!a.element1 && !b.element1) return 0;
+    if (!a.element1) return 1;
+    if (!b.element1) return -1;
+    const rankA = elementRank(a.element1.id);
+    const rankB = elementRank(b.element1.id);
+    if (rankA !== rankB) return rankA - rankB;
+    const gA = groupRank(a), gB = groupRank(b);
+    if (gA !== gB) return gA - gB;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function initSortToggle() {
+  const bar = document.getElementById('team-sort-toggle');
+  if (!bar) return;
+  const saved = localStorage.getItem(SORT_KEY) || 'element';
+  bar.querySelectorAll('.seg-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.sort === saved));
+  bar.querySelectorAll('.seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      localStorage.setItem(SORT_KEY, btn.dataset.sort);
+      bar.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      render();
+    }));
+}
+initSortToggle();
 
 function render() {
   const root = document.getElementById('team-grid');
@@ -147,12 +245,23 @@ function render() {
       <button class="btn primary" onclick="document.getElementById('new-team-btn').click()">+ Cadastrar o primeiro</button></div>`;
     return;
   }
-  root.innerHTML = teams.map(teamHtml).join('');
+  let visible = selectedElementFilters.size
+    ? teams.filter((t) => [...selectedElementFilters].some((id) => teamHasElement(t, id)))
+    : teams;
+  if (!visible.length) {
+    root.innerHTML = `<div class="empty-state glass" style="grid-column:1/-1"><span class="rune">&#x16DF;</span>
+      Nenhum time com os elementos selecionados.</div>`;
+    return;
+  }
+  if ((localStorage.getItem(SORT_KEY) || 'element') === 'element') visible = sortByElement(visible);
+  root.innerHTML = visible.map(teamHtml).join('');
 
-  teams.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));
+  visible.forEach((t) => applyGradient(t, root.querySelector(`.team-head[data-team="${t.id}"]`)));
 
   root.querySelectorAll('[data-grad]').forEach((btn) =>
     btn.addEventListener('click', () => cycleGradient(+btn.dataset.grad)));
+  root.querySelectorAll('[data-edit]').forEach((btn) =>
+    btn.addEventListener('click', () => openTeamModal(teams.find((t) => t.id === +btn.dataset.edit))));
   root.querySelectorAll('[data-delete]').forEach((btn) =>
     btn.addEventListener('click', () => deleteTeam(+btn.dataset.delete)));
   root.querySelectorAll('.tm-remove').forEach((btn) =>
@@ -163,6 +272,185 @@ function render() {
         await load();
       } catch (err) { toast(err.message, 'error'); }
     }));
+  root.querySelectorAll('.tm-card.mystery').forEach((card) =>
+    card.addEventListener('click', () =>
+      openMysteryPicker(teams.find((t) => t.id === +card.dataset.team), +card.dataset.slot)));
+  root.querySelectorAll('.tm-card[data-open-full]').forEach((card) =>
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.tm-remove')) return;
+      const team = teams.find((t) => t.id === +card.dataset.team);
+      const member = team && team.members.find((m) => m && m.id === +card.dataset.openFull);
+      if (member) openFullCardModal(member);
+    }));
+  root.querySelectorAll('.team-reaction').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.tr-remove')) return;
+      const t = teams.find((tt) => tt.id === +el.dataset.team);
+      if (t && t.reaction) openReactionInfoModal(t.reaction);
+    }));
+  root.querySelectorAll('.tr-remove').forEach((btn) =>
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await api(`/api/teams/${btn.dataset.team}/reaction`, { method: 'DELETE' });
+        await load();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+  root.querySelectorAll('.team-reaction-add').forEach((btn) =>
+    btn.addEventListener('click', () => openReactionPicker(+btn.dataset.team)));
+}
+
+// ---------------------------------------------------------------- card completo (lightbox)
+function openFullCardModal(m) {
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16A9;</span> ${esc(m.name)}</h3>
+    <img src="${esc(thumbUrl(m.card_full || m.card_promo, 900))}" alt="${esc(m.name)}"
+         style="width:100%;border-radius:10px;display:block">
+    <div class="modal-actions">
+      <button class="btn" data-close>Fechar</button>
+    </div>`, { wide: true });
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
+// ---------------------------------------------------------------- reação do time
+function openReactionInfoModal(reaction) {
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> ${esc(reaction.name)}</h3>
+    <img src="${esc(thumbUrl(reaction.image, 200))}" alt="${esc(reaction.name)}"
+         style="width:120px;height:120px;display:block;margin:0 auto 14px">
+    ${reaction.description ? `<p style="color:var(--ink-2);line-height:1.6"><b>Descrição:</b> ${esc(reaction.description)}</p>` : ''}
+    ${reaction.effect ? `<p style="color:var(--ink-2);line-height:1.6"><b>Efeito in-game:</b> ${esc(reaction.effect)}</p>` : ''}
+    <div class="modal-actions">
+      <button class="btn" data-close>Fechar</button>
+    </div>`);
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
+async function openReactionPicker(teamId) {
+  const reactions = await api('/api/reactions');
+  if (!reactions.length) {
+    toast('Nenhuma reação cadastrada ainda. Cadastre em Reações primeiro.', 'error');
+    return;
+  }
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Escolher reação</h3>
+    <div class="pick-grid" id="rp-grid"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+    </div>`, { wide: true });
+  const gridEl = overlay.querySelector('#rp-grid');
+  gridEl.innerHTML = reactions.map((r) => `
+    <div class="pick-card" data-reaction="${r.id}" title="${esc(r.name)}">
+      <img src="${esc(thumbUrl(r.image, 200))}" alt="${esc(r.name)}" style="aspect-ratio:1/1;object-fit:contain;background:rgba(0,0,0,0.3)">
+      <div class="pk-name">${esc(r.name)}</div>
+    </div>`).join('');
+  gridEl.querySelectorAll('[data-reaction]').forEach((card) =>
+    card.addEventListener('click', async () => {
+      try {
+        await api(`/api/teams/${teamId}/reaction`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reaction_id: +card.dataset.reaction }),
+        });
+        closeModal(overlay);
+        await load();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
+// ---------------------------------------------------------------- escolha de personagem p/ slot "?"
+async function openMysteryPicker(team, slot) {
+  const available = allChars.filter((c) => !usedCharIds().has(c.id));
+  const params = await api('/api/params');
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
+
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Escolher personagem — ${esc(team.name)}</h3>
+    <div class="pick-filters">
+      <input type="text" id="mp-search" placeholder="Buscar nome...">
+      ${selectHtml('mp-region', 'Região', params.region)}
+      ${selectHtml('mp-affiliation', 'Afiliação', params.affiliation)}
+      ${selectHtml('mp-element', 'Elemento', params.element)}
+      ${selectHtml('mp-weapon', 'Arma', params.weapon)}
+      ${selectHtml('mp-role1', 'Role 1', params.role)}
+      ${selectHtml('mp-role2', 'Role 2', params.role)}
+    </div>
+    <div class="pick-grid" id="mp-grid"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+    </div>`, { wide: true });
+
+  const gridEl = overlay.querySelector('#mp-grid');
+  const searchEl = overlay.querySelector('#mp-search');
+  const dimFilterEls = {
+    region: overlay.querySelector('#mp-region'),
+    affiliation: overlay.querySelector('#mp-affiliation'),
+    element: overlay.querySelector('#mp-element'),
+    weapon: overlay.querySelector('#mp-weapon'),
+  };
+  const role1El = overlay.querySelector('#mp-role1');
+  const role2El = overlay.querySelector('#mp-role2');
+
+  function renderGrid() {
+    const term = searchEl.value.trim().toLowerCase();
+    const role1 = role1El.value;
+    const role2 = role2El.value;
+    const chars = available.filter((c) => {
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (role1 && c.role1 !== role1) return false;
+      if (role2 && c.role2 !== role2) return false;
+      for (const [dim, el] of Object.entries(dimFilterEls)) {
+        if (el.value && (c[dim].name || '') !== el.value) return false;
+      }
+      return true;
+    });
+
+    gridEl.innerHTML = chars.length
+      ? chars.map((c) => {
+          const elem = c.element.image
+            ? `<img class="pk-elem" src="/static/${esc(c.element.image)}" alt="${esc(c.element.name)}" title="${esc(c.element.name)}">`
+            : '';
+          const roles = [c.role1, c.role2].filter(Boolean);
+          const rolesHtml = roles.length
+            ? `<div class="pk-roles">${roles.map((r) => `<span class="tm-role">${esc(r)}</span>`).join('')}</div>`
+            : '';
+          return `
+          <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
+            <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
+            <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+            <div class="pk-name">${esc(c.name)}</div>
+            ${elem}
+            ${rolesHtml}
+          </div>`;
+        }).join('')
+      : '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>';
+
+    gridEl.querySelectorAll('[data-char]').forEach((card) =>
+      card.addEventListener('click', async () => {
+        try {
+          await api(`/api/teams/${team.id}/members/${slot}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ character_id: +card.dataset.char }),
+          });
+          closeModal(overlay);
+          toast('Personagem adicionado ao time!', 'success');
+          await load();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+  }
+
+  searchEl.addEventListener('input', renderGrid);
+  Object.values(dimFilterEls).forEach((el) => el.addEventListener('change', renderGrid));
+  role1El.addEventListener('change', renderGrid);
+  role2El.addEventListener('change', renderGrid);
+  renderGrid();
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
 }
 
 async function cycleGradient(teamId) {
@@ -200,102 +488,291 @@ function deleteTeam(teamId) {
   };
 }
 
-// ---------------------------------------------------------------- cadastro
-document.getElementById('new-team-btn').addEventListener('click', () => {
+// ---------------------------------------------------------------- cadastro / edição
+async function openTeamModal(editTeam) {
+  const isEdit = !!editTeam;
   const used = usedCharIds();
+  if (isEdit) editTeam.members.forEach((m) => { if (m) used.delete(m.id); });
   const available = allChars.filter((c) => !used.has(c.id));
   const byId = new Map(available.map((c) => [c.id, c]));
+  const params = await api('/api/params');
   // null = slot vazio, 'q' = "?", número = id do personagem
-  const sel = [null, null, null, null];
+  const sel = isEdit ? editTeam.members.map((m) => (m ? m.id : 'q')) : [null, null, null, null];
+  if (isEdit) sel.forEach((v, i) => { if (v !== 'q' && !byId.has(v)) byId.set(v, editTeam.members[i]); });
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
+
+  const compEl1Id = isEdit && editTeam.element1 ? editTeam.element1.id : '';
+  const compEl2Id = isEdit && editTeam.element2 ? editTeam.element2.id : '';
+  const elementOptionsHtml = (items, selectedId) => items.map((i) =>
+    `<option value="${i.id}" ${+selectedId === i.id ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16DF;</span> Cadastrar Time</h3>
+    <h3><span class="rune">&#x16DF;</span> ${isEdit ? 'Editar' : 'Cadastrar'} Time</h3>
     <div class="field">
       <label class="field-label">Nome do time</label>
-      <input type="text" id="tm-name" maxlength="60" placeholder="Ex.: Vanguarda de Niro">
+      <input type="text" id="tm-name" maxlength="60" placeholder="Ex.: Vanguarda de Niro" value="${isEdit ? esc(editTeam.name) : ''}">
     </div>
-    <label class="field-label">Escalação — clique num slot preenchido para esvaziá-lo</label>
+    <label class="field-label">Composição — elementos que formam o time</label>
+    <div class="team-comp">
+      <select id="tm-comp-el1">
+        <option value="">Elemento 1...</option>
+        ${elementOptionsHtml(params.element, compEl1Id)}
+      </select>
+      <select id="tm-comp-el2">
+        <option value="">Random (?)</option>
+        ${elementOptionsHtml(params.element, compEl2Id)}
+      </select>
+    </div>
+    <label class="field-label">Escalação — arraste um personagem até um slot, ou clique num slot preenchido para esvaziá-lo</label>
     <div class="team-slots" id="tm-slots"></div>
     <label class="field-label">Personagens disponíveis</label>
-    <input type="text" id="tm-search" placeholder="Buscar nome..." style="margin-bottom:10px">
+    <div class="pick-filters">
+      <input type="text" id="tm-search" placeholder="Buscar nome...">
+      ${selectHtml('tm-region', 'Região', params.region)}
+      ${selectHtml('tm-affiliation', 'Afiliação', params.affiliation)}
+      ${selectHtml('tm-element', 'Elemento', params.element)}
+      ${selectHtml('tm-weapon', 'Arma', params.weapon)}
+      ${selectHtml('tm-role1', 'Role 1', params.role)}
+      ${selectHtml('tm-role2', 'Role 2', params.role)}
+    </div>
     <div class="pick-grid" id="tm-grid"></div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
-      <button class="btn primary" data-save>Cadastrar</button>
+      <button class="btn primary" data-save>${isEdit ? 'Salvar' : 'Cadastrar'}</button>
     </div>`, { wide: true });
 
   const slotsEl = overlay.querySelector('#tm-slots');
   const gridEl = overlay.querySelector('#tm-grid');
   const searchEl = overlay.querySelector('#tm-search');
+  const dimFilterEls = {
+    region: overlay.querySelector('#tm-region'),
+    affiliation: overlay.querySelector('#tm-affiliation'),
+    element: overlay.querySelector('#tm-element'),
+    weapon: overlay.querySelector('#tm-weapon'),
+  };
+  const role1El = overlay.querySelector('#tm-role1');
+  const role2El = overlay.querySelector('#tm-role2');
+
+  function assign(idx, value) {
+    sel[idx] = value;
+    renderSlots();
+    renderGrid();
+  }
 
   function renderSlots() {
     slotsEl.innerHTML = sel.map((v, i) => {
       if (v === null) return `<div class="team-slot empty" data-slot="${i}"><span>+</span></div>`;
-      if (v === 'q') return `<div class="team-slot mystery" data-slot="${i}" title="Clique para esvaziar">?</div>`;
+      if (v === 'q') return `<div class="team-slot mystery" data-slot="${i}" draggable="true" title="Clique para esvaziar, ou arraste para trocar de slot">?</div>`;
       const c = byId.get(v);
       return `
-        <div class="team-slot" data-slot="${i}" title="Clique para esvaziar">
+        <div class="team-slot" data-slot="${i}" draggable="true" title="Clique para esvaziar, ou arraste para trocar de slot">
           <img src="/static/${esc(c.card_promo)}" alt="${esc(c.name)}">
           <div class="ts-name">${esc(c.name)}</div>
         </div>`;
     }).join('');
-    slotsEl.querySelectorAll('.team-slot:not(.empty)').forEach((slot) =>
-      slot.addEventListener('click', () => { sel[+slot.dataset.slot] = null; renderSlots(); renderGrid(); }));
+
+    slotsEl.querySelectorAll('.team-slot:not(.empty)').forEach((slot) => {
+      slot.addEventListener('click', () => { sel[+slot.dataset.slot] = null; renderSlots(); renderGrid(); });
+      slot.addEventListener('dragstart', (e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', JSON.stringify({ from: 'slot', index: +slot.dataset.slot }));
+      });
+    });
+
+    slotsEl.querySelectorAll('.team-slot').forEach((slot) => {
+      slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); });
+      slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+      slot.addEventListener('drop', (e) => {
+        e.preventDefault();
+        slot.classList.remove('drag-over');
+        let payload;
+        try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (_) { return; }
+        const idx = +slot.dataset.slot;
+        if (payload.from === 'pick') {
+          assign(idx, payload.value);
+        } else if (payload.from === 'slot' && payload.index !== idx) {
+          const tmp = sel[idx];
+          sel[idx] = sel[payload.index];
+          sel[payload.index] = tmp;
+          renderSlots();
+          renderGrid();
+        }
+      });
+    });
   }
 
   function pick(value) {
     const empty = sel.indexOf(null);
     if (empty === -1) { toast('Os 4 slots já estão preenchidos.', 'error'); return; }
-    sel[empty] = value;
-    renderSlots();
-    renderGrid();
+    assign(empty, value);
   }
 
   function renderGrid() {
     const term = searchEl.value.trim().toLowerCase();
-    const chars = available.filter((c) => !sel.includes(c.id) &&
-      (!term || c.name.toLowerCase().includes(term)));
+    const role1 = role1El.value;
+    const role2 = role2El.value;
+    const chars = available.filter((c) => {
+      if (sel.includes(c.id)) return false;
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (role1 && c.role1 !== role1) return false;
+      if (role2 && c.role2 !== role2) return false;
+      for (const [dim, el] of Object.entries(dimFilterEls)) {
+        if (el.value && (c[dim].name || '') !== el.value) return false;
+      }
+      return true;
+    });
 
     const mysteryCard = `
-      <div class="pick-card pick-mystery" data-mystery title="Slot desconhecido">
+      <div class="pick-card pick-mystery" data-mystery draggable="true" title="Slot desconhecido">
         <div class="pm-block">?</div>
         <div class="pk-name">?</div>
       </div>`;
     const charCards = chars.map((c) => `
-      <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
+      <div class="pick-card" data-char="${c.id}" draggable="true" title="${esc(c.name)}">
         <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
         <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
         <div class="pk-name">${esc(c.name)}</div>
       </div>`).join('');
 
     gridEl.innerHTML = mysteryCard + (charCards ||
-      '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem disponível.</div>');
+      '<div class="empty-state" style="grid-column:2/-1;padding:30px">Nenhum personagem encontrado.</div>');
 
     gridEl.querySelector('[data-mystery]').addEventListener('click', () => pick('q'));
     gridEl.querySelectorAll('[data-char]').forEach((card) =>
       card.addEventListener('click', () => pick(+card.dataset.char)));
+
+    gridEl.querySelectorAll('.pick-card').forEach((card) => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.effectAllowed = 'copy';
+        const value = card.dataset.mystery !== undefined ? 'q' : +card.dataset.char;
+        e.dataTransfer.setData('text/plain', JSON.stringify({ from: 'pick', value }));
+      });
+    });
   }
 
   searchEl.addEventListener('input', renderGrid);
+  Object.values(dimFilterEls).forEach((el) => el.addEventListener('change', renderGrid));
+  role1El.addEventListener('change', renderGrid);
+  role2El.addEventListener('change', renderGrid);
   renderSlots();
   renderGrid();
 
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
   overlay.querySelector('[data-save]').onclick = async () => {
     const name = overlay.querySelector('#tm-name').value.trim();
+    const el1Val = overlay.querySelector('#tm-comp-el1').value;
+    const el2Val = overlay.querySelector('#tm-comp-el2').value;
     if (!name) { toast('Informe o nome do time.', 'error'); return; }
+    if (!el1Val) { toast('Selecione o elemento 1 da composição do time.', 'error'); return; }
     if (sel.includes(null)) { toast('Preencha os 4 slots do time (use "?" se necessário).', 'error'); return; }
     try {
-      await api('/api/teams', {
-        method: 'POST',
+      await api(isEdit ? `/api/teams/${editTeam.id}` : '/api/teams', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, members: sel.map((v) => (v === 'q' ? null : v)) }),
+        body: JSON.stringify({
+          name,
+          members: sel.map((v) => (v === 'q' ? null : v)),
+          element1_id: +el1Val,
+          element2_id: el2Val ? +el2Val : null,
+        }),
       });
       closeModal(overlay);
-      toast('Time cadastrado!', 'success');
+      toast(isEdit ? 'Time atualizado!' : 'Time cadastrado!', 'success');
       await load();
     } catch (err) { toast(err.message, 'error'); }
   };
-});
+}
+
+// ---------------------------------------------------------------- combinações de elementos
+// Ordem importa: Fae + Electro é uma combinação diferente de Electro + Fae.
+// "Elemento Rainbow" (elemento fixo + slot random) também é um arquétipo padrão.
+function pairKey(id1, id2) {
+  return `${id1}-${id2 === null || id2 === undefined ? 'R' : id2}`;
+}
+
+function pairLabel(a, b) {
+  if (!b) return `${a.name} Rainbow`;
+  return a.id === b.id ? `Mono ${a.name}` : `${a.name} + ${b.name}`;
+}
+
+function pairImgsHtml(a, b) {
+  const img = (el) => el.image ? `<img src="/static/${esc(el.image)}" alt="${esc(el.name)}">` : '';
+  return img(a) + (b && a.id !== b.id ? img(b) : '');
+}
+
+async function openCombinationsModal() {
+  const params = await api('/api/params');
+  const elements = params.element;
+  if (elements.length < 1) { toast('Cadastre elementos em Parâmetros primeiro.', 'error'); return; }
+
+  const existing = new Set();
+  teams.forEach((t) => { if (t.element1) existing.add(pairKey(t.element1.id, t.element2 ? t.element2.id : null)); });
+
+  const pairs = [];
+  for (let i = 0; i < elements.length; i++) {
+    for (let j = 0; j < elements.length; j++) pairs.push([elements[i], elements[j]]);
+    pairs.push([elements[i], null]);
+  }
+  const missing = pairs.filter(([a, b]) => !existing.has(pairKey(a.id, b ? b.id : null)));
+  const done = pairs.filter(([a, b]) => existing.has(pairKey(a.id, b ? b.id : null)));
+
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DF;</span> Combinações de elementos</h3>
+    <p style="color:var(--ink-2)">Clique numa combinação ainda não criada para gerar um time automaticamente (4 slots "?").</p>
+    <label class="field-label">Faltando (${missing.length})</label>
+    <div class="combo-grid" id="combo-missing"></div>
+    ${done.length ? `<label class="field-label" style="margin-top:16px">Já criadas (${done.length})</label>
+    <div class="combo-grid" id="combo-done"></div>` : ''}
+    <div class="modal-actions">
+      <button class="btn" data-close>Fechar</button>
+    </div>`, { wide: true });
+
+  const missingEl = overlay.querySelector('#combo-missing');
+  missingEl.innerHTML = missing.length
+    ? missing.map(([a, b]) => `
+        <div class="combo-card" data-e1="${a.id}" data-e2="${b ? b.id : ''}" title="Clique para criar o time ${esc(pairLabel(a, b))}">
+          <div class="combo-imgs">${pairImgsHtml(a, b)}</div>
+          <div class="combo-label">${esc(pairLabel(a, b))}</div>
+        </div>`).join('')
+    : '<div class="empty-state" style="grid-column:1/-1;padding:20px">Todas as combinações já têm um time!</div>';
+
+  const doneEl = overlay.querySelector('#combo-done');
+  if (doneEl) {
+    doneEl.innerHTML = done.map(([a, b]) => `
+      <div class="combo-card done" title="${esc(pairLabel(a, b))}">
+        <div class="combo-imgs">${pairImgsHtml(a, b)}</div>
+        <div class="combo-label">${esc(pairLabel(a, b))}</div>
+      </div>`).join('');
+  }
+
+  missingEl.querySelectorAll('.combo-card').forEach((card) =>
+    card.addEventListener('click', async () => {
+      const a = elements.find((e) => e.id === +card.dataset.e1);
+      const b = card.dataset.e2 ? elements.find((e) => e.id === +card.dataset.e2) : null;
+      const name = pairLabel(a, b);
+      try {
+        await api('/api/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name, members: [null, null, null, null],
+            element1_id: a.id, element2_id: b ? b.id : null,
+          }),
+        });
+        closeModal(overlay);
+        toast(`Time "${name}" criado!`, 'success');
+        await load();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+}
+
+document.getElementById('new-team-btn').addEventListener('click', () => openTeamModal());
+document.getElementById('combos-btn').addEventListener('click', () => openCombinationsModal());
 
 load().catch((e) => toast(e.message, 'error'));

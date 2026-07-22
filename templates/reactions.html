@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Reações — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16DF;</span> Reações</h2>
+    <p class="page-sub">Cruzamento de elementos &middot; clique num "+" para cadastrar a reação daquela combinação</p>
+  </div>
+</div>
+
+<div class="reactions-scroll">
+  <div id="reactions-chart">
+    <div class="empty-state"><span class="rune">&#x16DF;</span>Carregando...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/reactions.js') }}"></script>
+{% endblock %}

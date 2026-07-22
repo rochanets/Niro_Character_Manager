@@ -224,6 +224,44 @@ function openReassign(id, item, characters) {
   };
 }
 
+// ---------------------------------------------------------------- backup (exportar/importar)
+document.getElementById('import-btn').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+
+document.getElementById('import-file').addEventListener('change', function () {
+  const file = this.files[0];
+  this.value = '';
+  if (!file) return;
+
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16DA;</span> Importar backup</h3>
+    <p style="color:var(--ink-2);line-height:1.6">
+      Isso vai <b>substituir todos os dados atuais</b> (personagens, imagens, times, banners,
+      parâmetros e histórico) pelo conteúdo de <b>${esc(file.name)}</b>. Essa ação não pode ser desfeita.
+    </p>
+    <div class="modal-actions">
+      <button class="btn" data-close>Cancelar</button>
+      <button class="btn danger" data-confirm>Substituir tudo e importar</button>
+    </div>`);
+  overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
+  overlay.querySelector('[data-confirm]').onclick = async () => {
+    const btn = overlay.querySelector('[data-confirm]');
+    btn.disabled = true;
+    btn.textContent = 'Importando...';
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      await api('/api/import', { method: 'POST', body: fd });
+      toast('Backup importado! Recarregando...', 'success');
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+      toast(err.message, 'error');
+      closeModal(overlay);
+    }
+  };
+});
+
 document.querySelectorAll('#param-tabs .tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('#param-tabs .tab').forEach((t) => t.classList.remove('active'));

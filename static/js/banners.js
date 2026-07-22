@@ -2,18 +2,275 @@
 
 let bannerData = null;   // { versions, banners, limits }
 let allChars = null;
+let allTeams = null;
+
+// banners especiais começam recolhidos; guarda quais o usuário expandiu para
+// manter o estado entre re-renderizações da grade
+const expandedSpecials = new Set();
 
 async function load() {
   bannerData = await api('/api/banners');
   render();
 }
 
+const versionSeq = (major, minor) => major * 9 + minor;
+
+// especiais não têm metade própria: valem pela versão x.y inteira
+const halfLabelText = (half) => (half === 1 ? '1ª metade' : half === 2 ? '2ª metade' : 'versão toda');
+
+// quantas vezes o personagem já apareceu em banners até (e incluindo) a versão-alvo
+function appearanceCount(charId, targetSeq) {
+  return bannerData.banners.filter((b) =>
+    versionSeq(b.major, b.minor) <= targetSeq && b.characters.some((c) => c.id === charId)).length;
+}
+
+function characterVersionConflict(targetBanner, excludedBannerId, charId) {
+  const appearances = bannerData.banners.filter((b) =>
+    b.id !== excludedBannerId && b.characters.some((c) => c.id === charId));
+  const sameVersion = appearances.find((b) =>
+    b.major === targetBanner.major && b.minor === targetBanner.minor);
+  if (sameVersion) return `Já aparece na outra metade da versão ${sameVersion.major}.${sameVersion.minor}`;
+  const special = appearances.find((b) => b.type === 'especial' && b.major === targetBanner.major);
+  if (special) return `Já aparece no banner especial da versão ${special.major}.${special.minor}`;
+  const targetSeq = versionSeq(targetBanner.major, targetBanner.minor);
+  const consecutive = appearances.find((b) => Math.abs(versionSeq(b.major, b.minor) - targetSeq) === 1);
+  if (consecutive) return `Já aparece na versão consecutiva ${consecutive.major}.${consecutive.minor}`;
+  return '';
+}
+
+// ---------------------------------------------------------------- popover de histórico por raridade (hover no picker)
+let histPopover = null;
+
+function ensureHistPopover() {
+  if (!histPopover) {
+    histPopover = document.createElement('div');
+    histPopover.className = 'banner-hist-popover';
+    // ao entrar no próprio popover, mantém aberto; só fecha quando o cursor sair dele
+    histPopover.addEventListener('mouseenter', () => clearTimeout(histHideTimer));
+    histPopover.addEventListener('mouseleave', hideRarityHistoryPopover);
+    document.body.appendChild(histPopover);
+  }
+  return histPopover;
+}
+
+let histShowTimer = null;
+let histHideTimer = null;
+
+function hideRarityHistoryPopoverNow() {
+  if (histPopover) histPopover.style.display = 'none';
+}
+
+// esconde imediatamente e cancela qualquer exibição/ocultação agendada
+function hideRarityHistoryPopover() {
+  clearTimeout(histShowTimer);
+  clearTimeout(histHideTimer);
+  hideRarityHistoryPopoverNow();
+}
+
+// agenda o fechamento em breve, dando tempo do cursor entrar no próprio popover
+function scheduleHideRarityHistoryPopover() {
+  clearTimeout(histShowTimer);
+  clearTimeout(histHideTimer);
+  histHideTimer = setTimeout(hideRarityHistoryPopoverNow, 150);
+}
+
+// linha do tempo de versões (major.minor) que têm ao menos um banner com personagens;
+// a contagem de "tempo sem aparecer" é por versão, não por metade (1ª/2ª metade da
+// mesma versão contam como o mesmo ponto da linha do tempo)
+function versionTimeline(targetMajor, targetMinor) {
+  const targetKey = versionSeq(targetMajor, targetMinor);
+  const versions = [...new Set(
+    bannerData.banners.filter((b) => b.characters.length > 0).map((b) => versionSeq(b.major, b.minor)),
+  )].sort((a, b) => a - b);
+  const currentIdx = versions.filter((v) => v < targetKey).length;
+  // último banner (qualquer metade) em que cada personagem apareceu, até a versão alvo
+  const lastIdx = {};
+  const lastBanner = {};
+  bannerData.banners.forEach((b) => {
+    const seq = versionSeq(b.major, b.minor);
+    if (seq > targetKey || !b.characters.length) return;
+    const idx = versions.indexOf(seq);
+    b.characters.forEach((c) => {
+      if (lastIdx[c.id] === undefined || idx > lastIdx[c.id]) { lastIdx[c.id] = idx; lastBanner[c.id] = b; }
+    });
+  });
+  return { currentIdx, lastIdx, lastBanner };
+}
+
+// histórico de aparições dos personagens da mesma raridade, até a versão alvo
+function rarityHistoryRows(rarity, targetMajor, targetMinor) {
+  const { currentIdx, lastIdx, lastBanner } = versionTimeline(targetMajor, targetMinor);
+  const rows = allChars.filter((c) => c.rarity === rarity).map((c) => {
+    const last = lastIdx[c.id];
+    const gap = last === undefined ? currentIdx + 1 : currentIdx - last;
+    const b = lastBanner[c.id] || null;
+    return {
+      id: c.id, name: c.name, rarity: c.rarity,
+      gap, last_banner: b ? `${b.major}.${b.minor} (${halfLabelText(b.half)})` : null,
+    };
+  });
+  rows.sort((a, b) => b.gap - a.gap || a.name.localeCompare(b.name));
+  return rows;
+}
+
+// mapa charId -> quantidade de versões publicadas desde a última aparição do
+// personagem até a versão alvo; usado para ordenar quem está há mais tempo sem
+// aparecer primeiro nas listas de seleção
+function appearanceGapMap(targetMajor, targetMinor) {
+  const { currentIdx, lastIdx } = versionTimeline(targetMajor, targetMinor);
+  const gaps = {};
+  allChars.forEach((c) => {
+    const last = lastIdx[c.id];
+    gaps[c.id] = last === undefined ? currentIdx + 1 : currentIdx - last;
+  });
+  return gaps;
+}
+
+function showRarityHistoryPopover(anchorEl, charId, rarity, targetMajor, targetMinor, targetHalf) {
+  const pop = ensureHistPopover();
+  const rows = rarityHistoryRows(rarity, targetMajor, targetMinor);
+  const maxGap = Math.max(1, ...rows.map((r) => r.gap));
+  const halfLabel = targetHalf === 1 ? '1ª' : '2ª';
+  pop.innerHTML = `
+    <div class="hp-title">Aparições em banners &middot; ${rarity}★ &middot; até ${targetMajor}.${targetMinor} (${halfLabel})</div>
+    <div class="hp-rows">
+      ${rows.map((r) => `
+        <div class="hp-row r${r.rarity} ${r.id === charId ? 'hp-current' : ''}" title="${r.gap === 0 ? 'está no banner atual' : r.last_banner ? `última aparição no banner ${esc(r.last_banner)}` : 'nunca apareceu em um banner'}">
+          <span class="hp-name">${esc(r.name)}</span>
+          <span class="hp-track"><span class="hp-fill" style="width:${maxGap ? (r.gap / maxGap) * 100 : 0}%${r.gap === 0 ? ';display:none' : ''}"></span></span>
+          <span class="hp-value">${r.gap}</span>
+        </div>`).join('')}
+    </div>`;
+  pop.style.display = 'block';
+  const rect = anchorEl.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let left = rect.right + 12;
+  if (left + popRect.width > window.innerWidth - 10) left = rect.left - popRect.width - 12;
+  if (left < 10) left = 10;
+  let top = rect.top;
+  if (top + popRect.height > window.innerHeight - 10) top = window.innerHeight - popRect.height - 10;
+  if (top < 10) top = 10;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+
+const HIST_HOVER_DELAY_MS = 2000;
+
+// liga o hover de histórico por raridade a todas as pick-cards de uma grade;
+// o popover só abre depois do cursor parado sobre o personagem por 2s
+function attachRarityHistoryHover(grid, getTargetVersion) {
+  grid.querySelectorAll('.pick-card').forEach((card) => {
+    const rarity = +card.dataset.rarity;
+    const charId = +card.dataset.char;
+    card.addEventListener('mouseenter', () => {
+      clearTimeout(histShowTimer);
+      clearTimeout(histHideTimer);
+      const target = getTargetVersion();
+      histShowTimer = setTimeout(() => {
+        showRarityHistoryPopover(card, charId, rarity, target.major, target.minor, target.half);
+      }, HIST_HOVER_DELAY_MS);
+    });
+    card.addEventListener('mouseleave', scheduleHideRarityHistoryPopover);
+  });
+}
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideRarityHistoryPopover(); });
+
+// true quando o banner já atingiu o limite total de personagens do seu tipo
+// (raridades com limite ilimitado — ex.: 4★ em banners especiais — nunca ficam cheias)
+function isBannerFull(banner) {
+  const limits = bannerData.limits[banner.type];
+  if (limits[5] == null || limits[4] == null) return false;
+  const maxTotal = limits[5] + limits[4];
+  return banner.characters.length >= maxTotal;
+}
+
+function characterEditionConflict(targetBanner, excludedBannerId, charId) {
+  const character = allChars.find((c) => c.id === charId);
+  if (!character) return '';
+  if (character.edition === 'Inicial') return 'Personagens com edição Inicial não podem aparecer em banners';
+  if (character.edition !== 'Padrão' || targetBanner.type === 'especial') return '';
+  const previous = bannerData.banners.find((b) =>
+    b.id !== excludedBannerId && b.type !== 'especial' && b.characters.some((c) => c.id === charId));
+  return previous
+    ? `Edição Padrão: já aparece no banner ${previous.major}.${previous.minor}`
+    : '';
+}
+
+function pickState(banner, char, inBannerIds, full, versionConflict) {
+  const already = inBannerIds.has(char.id);
+  const editionConflict = !already ? characterEditionConflict(banner, banner.id, char.id) : '';
+  const conflict = !already && !full && !editionConflict ? versionConflict : '';
+  const reason = already ? 'Já está no banner'
+    : editionConflict || (full ? `Limite de ${char.rarity}★ atingido` : conflict);
+  return { already, disabled: Boolean(reason), reason };
+}
+
+// menor versão (major.minor) em que o personagem aparece em algum banner —
+// usado para saber se ESTE banner é a estreia dele (primeira vez que aparece)
+function firstAppearanceSeq(charId) {
+  let min;
+  bannerData.banners.forEach((b) => {
+    if (!b.characters.some((c) => c.id === charId)) return;
+    const seq = versionSeq(b.major, b.minor);
+    if (min === undefined || seq < min) min = seq;
+  });
+  return min;
+}
+
+function isFirstAppearance(banner, charId) {
+  return firstAppearanceSeq(charId) === versionSeq(banner.major, banner.minor);
+}
+
 function bannerCharHtml(banner, c) {
+  const first = isFirstAppearance(banner, c.id);
   return `
-    <div class="banner-char r${c.rarity}" title="${esc(c.name)} (${c.rarity}★)">
+    <div class="banner-char r${c.rarity} ${first ? 'bc-first' : ''}" title="${esc(c.name)} (${c.rarity}★)${first ? ' — estreia em banner' : ''}">
       <img src="${esc(thumbUrl(c.card_promo, 220))}" alt="${esc(c.name)}">
       <div class="bc-name">${esc(c.name)}</div>
       <button class="bc-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
+    </div>`;
+}
+
+// banners especiais têm 4★ ilimitado: em vez de cartas de imagem, lista os
+// nomes em bullet points de 3 colunas numa subseção "4 estrelas:"
+function bannerFourStarListHtml(banner, four) {
+  return `
+    <div class="banner-four-list">
+      <div class="b4-title">4 estrelas:</div>
+      <ul class="b4-columns">
+        ${four.map((c) => {
+          const first = isFirstAppearance(banner, c.id);
+          return `
+          <li class="${first ? 'bc-first' : ''}">
+            <span class="b4-name" title="${esc(c.name)}${first ? ' — estreia em banner' : ''}">${esc(c.name)}</span>
+            <button class="bc-remove b4-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
+          </li>`;
+        }).join('')}
+      </ul>
+    </div>`;
+}
+
+// monta a área de personagens de um banner; especiais mostram 4★ como lista de
+// nomes (ilimitado), os demais tipos mostram cartas de imagem para as 2 raridades
+function charsSectionHtml(banner, { withAddBtn }) {
+  const five = banner.characters.filter((c) => c.rarity === 5);
+  const four = banner.characters.filter((c) => c.rarity === 4);
+  const addBtn = withAddBtn && !isBannerFull(banner)
+    ? `<button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>` : '';
+  if (banner.type === 'especial') {
+    return `
+      <div class="banner-chars">
+        ${five.map((c) => bannerCharHtml(banner, c)).join('')}
+        ${addBtn}
+      </div>
+      ${four.length ? bannerFourStarListHtml(banner, four) : ''}`;
+  }
+  return `
+    <div class="banner-chars">
+      ${five.map((c) => bannerCharHtml(banner, c)).join('')}
+      ${four.map((c) => bannerCharHtml(banner, c)).join('')}
+      ${addBtn}
     </div>`;
 }
 
@@ -30,7 +287,64 @@ function render() {
   const majors = [...new Set(banners.map((b) => b.major))].sort((a, b) => a - b);
   const minors = [...new Set(banners.map((b) => b.minor))].sort((a, b) => a - b);
   const byCell = {};
-  banners.forEach((b) => { byCell[`${b.major}.${b.minor}`] = b; });
+  banners.forEach((b) => { if (b.half) byCell[`${b.major}.${b.minor}.${b.half}`] = b; });
+
+  function halfBoxHtml(major, minor, half) {
+    const banner = byCell[`${major}.${minor}.${half}`];
+    const halfLabel = half === 1 ? '1ª metade' : '2ª metade';
+    if (!banner) {
+      return `
+        <div class="banner-half empty-half">
+          <span class="half-label">${halfLabel}</span>
+          <button class="half-add-btn" data-add-half="${major}.${minor}.${half}" title="Cadastrar banner (${halfLabel})">+</button>
+        </div>`;
+    }
+    return `
+      <div class="banner-half">
+        <div class="banner-box">
+          <div class="bb-head">
+            <span class="banner-type ${banner.type}">${BANNER_TYPE_LABEL[banner.type]} &middot; ${major}.${minor} &middot; ${halfLabel}</span>
+            <div class="icon-btn-group">
+              <button class="icon-btn" data-edit-banner="${banner.id}" title="Editar banner">&#x270E;</button>
+              <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
+            </div>
+          </div>
+          ${charsSectionHtml(banner, { withAddBtn: true })}
+        </div>
+      </div>`;
+  }
+
+  // banners especiais valem pela versão x.y inteira (não presos a uma metade) e
+  // podem coexistir com as 2 metades já ocupadas
+  function specialsForCell(major, minor) {
+    return banners.filter((b) => b.major === major && b.minor === minor && b.type === 'especial');
+  }
+
+  function specialBoxHtml(banner) {
+    const collapsed = !expandedSpecials.has(banner.id);
+    const fiveCount = banner.characters.filter((c) => c.rarity === 5).length;
+    const fourCount = banner.characters.filter((c) => c.rarity === 4).length;
+    return `
+      <div class="banner-special ${collapsed ? 'collapsed' : ''}">
+        <div class="banner-box">
+          <div class="bb-head bb-head-toggle" data-toggle-special="${banner.id}"
+            title="${collapsed ? 'Expandir' : 'Recolher'} banner especial">
+            <span class="banner-type especial">
+              <span class="special-caret">${collapsed ? '▸' : '▾'}</span>
+              ${BANNER_TYPE_LABEL.especial} &middot; ${banner.major}.${banner.minor} &middot; versão toda
+              <span class="special-count">${fiveCount}×5★ &middot; ${fourCount}×4★</span>
+            </span>
+            <div class="icon-btn-group">
+              <button class="icon-btn" data-edit-banner="${banner.id}" title="Editar banner">&#x270E;</button>
+              <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
+            </div>
+          </div>
+          <div class="banner-special-body">
+            ${charsSectionHtml(banner, { withAddBtn: true })}
+          </div>
+        </div>
+      </div>`;
+  }
 
   let html = '<table class="banner-table"><thead><tr><th></th>';
   for (const major of majors) {
@@ -45,26 +359,14 @@ function render() {
   for (const minor of minors) {
     html += `<tr><td class="minor-label">x.${minor}</td>`;
     for (const major of majors) {
-      const banner = byCell[`${major}.${minor}`];
-      if (!banner) {
-        html += '<td class="banner-cell empty-cell">—</td>';
-        continue;
-      }
-      const five = banner.characters.filter((c) => c.rarity === 5);
-      const four = banner.characters.filter((c) => c.rarity === 4);
+      const specials = specialsForCell(major, minor);
       html += `
         <td class="banner-cell glass">
-          <div class="banner-box">
-            <div class="bb-head">
-              <span class="banner-type ${banner.type}">${BANNER_TYPE_LABEL[banner.type]} &middot; ${major}.${minor}</span>
-              <button class="icon-btn danger" data-delete="${banner.id}" title="Excluir banner">&#x2715;</button>
-            </div>
-            <div class="banner-chars">
-              ${five.map((c) => bannerCharHtml(banner, c)).join('')}
-              ${four.map((c) => bannerCharHtml(banner, c)).join('')}
-              <button class="banner-add-btn" data-add="${banner.id}" title="Adicionar personagem">+</button>
-            </div>
-          </div>
+          ${halfBoxHtml(major, minor, 1)}
+          ${halfBoxHtml(major, minor, 2)}
+          ${specials.map((b) => specialBoxHtml(b)).join('')}
+          <button class="special-add-btn" data-add-special="${major}.${minor}"
+            title="Cadastrar banner especial (vale pela versão ${major}.${minor} inteira)">+ Especial</button>
         </td>`;
     }
     html += '</tr>';
@@ -76,8 +378,29 @@ function render() {
     btn.addEventListener('click', () => renameVersion(+btn.dataset.rename)));
   board.querySelectorAll('[data-delete]').forEach((btn) =>
     btn.addEventListener('click', () => deleteBanner(+btn.dataset.delete)));
+  board.querySelectorAll('[data-edit-banner]').forEach((btn) =>
+    btn.addEventListener('click', () =>
+      openNewBannerModal(null, bannerData.banners.find((b) => b.id === +btn.dataset.editBanner))));
   board.querySelectorAll('[data-add]').forEach((btn) =>
     btn.addEventListener('click', () => openPicker(+btn.dataset.add)));
+  board.querySelectorAll('[data-add-half]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [major, minor, half] = btn.dataset.addHalf.split('.').map(Number);
+      openNewBannerModal({ major, minor, half });
+    }));
+  board.querySelectorAll('[data-toggle-special]').forEach((head) =>
+    head.addEventListener('click', (e) => {
+      // cliques nos botões de editar/excluir não devem alternar o recolhimento
+      if (e.target.closest('.icon-btn')) return;
+      const id = +head.dataset.toggleSpecial;
+      if (expandedSpecials.has(id)) expandedSpecials.delete(id); else expandedSpecials.add(id);
+      render();
+    }));
+  board.querySelectorAll('[data-add-special]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [major, minor] = btn.dataset.addSpecial.split('.').map(Number);
+      openNewBannerModal({ major, minor, half: null, type: 'especial' });
+    }));
   board.querySelectorAll('.bc-remove').forEach((btn) =>
     btn.addEventListener('click', async () => {
       try {
@@ -87,15 +410,31 @@ function render() {
     }));
 }
 
-// ---------------------------------------------------------------- cadastro
-document.getElementById('new-banner-btn').addEventListener('click', () => {
+// ---------------------------------------------------------------- cadastro / edição
+async function openNewBannerModal(prefill, editBanner) {
+  const isEdit = !!editBanner;
+  const base = editBanner || prefill;
+  if (isEdit && !allChars) allChars = await api('/api/characters');
+  const editParams = isEdit ? await api('/api/params') : null;
   const majorOptions = Array.from({ length: 8 }, (_, i) => i + 1)
-    .map((m) => `<option value="${m}">${m}.x${bannerData.versions[m] ? ` — ${esc(bannerData.versions[m])}` : ''}</option>`).join('');
+    .map((m) => `<option value="${m}" ${base && base.major === m ? 'selected' : ''}>${m}.x${bannerData.versions[m] ? ` — ${esc(bannerData.versions[m])}` : ''}</option>`).join('');
   const minorOptions = Array.from({ length: 9 }, (_, i) => i)
-    .map((m) => `<option value="${m}">.${m}</option>`).join('');
+    .map((m) => `<option value="${m}" ${base && base.minor === m ? 'selected' : ''}>.${m}</option>`).join('');
+  const halfOptions = [1, 2]
+    .map((h) => `<option value="${h}" ${base && base.half === h ? 'selected' : ''}>${h === 1 ? '1ª metade (dias 1–25)' : '2ª metade (dias 26–50)'}</option>`).join('');
+  const typeOptions = [
+    ['unitario', 'Unitário — 1 personagem 5★ + 3 personagens 4★'],
+    ['duplo', 'Duplo — 2 personagens 5★ + 3 personagens 4★'],
+    ['especial', 'Especial — até 12 personagens 5★ + 4★ ilimitado (vale pela versão inteira)'],
+  ].map(([v, label]) => `<option value="${v}" ${base && base.type === v ? 'selected' : ''}>${label}</option>`).join('');
+
+  const selectHtml = (id, label, items) => `
+    <select id="${id}"><option value="">${label}: todos</option>
+      ${items.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join('')}
+    </select>`;
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16B1;</span> Cadastrar Banner</h3>
+    <h3><span class="rune">&#x16B1;</span> ${isEdit ? 'Editar' : 'Cadastrar'} Banner</h3>
     <div class="form-grid">
       <div class="field">
         <label class="field-label">Versão</label>
@@ -106,22 +445,39 @@ document.getElementById('new-banner-btn').addEventListener('click', () => {
         <select id="nb-minor">${minorOptions}</select>
       </div>
     </div>
+    <div class="field" id="nb-half-field">
+      <label class="field-label">Metade da versão</label>
+      <select id="nb-half">${halfOptions}</select>
+    </div>
     <div class="field" id="nb-name-field">
       <label class="field-label">Nome da versão</label>
       <input type="text" id="nb-name" maxlength="80" placeholder="Ex.: O Despertar das Runas">
     </div>
     <div class="field">
       <label class="field-label">Tipo de banner</label>
-      <select id="nb-type">
-        <option value="unitario">Unitário — 1 personagem 5★ + 3 personagens 4★</option>
-        <option value="duplo">Duplo — 2 personagens 5★ + 3 personagens 4★</option>
-        <option value="especial">Especial — até 10 personagens 5★ + 5 personagens 4★</option>
-      </select>
+      <select id="nb-type">${typeOptions}</select>
     </div>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
-      <button class="btn primary" data-save>Cadastrar</button>
-    </div>`);
+      <button class="btn primary" data-save>${isEdit ? 'Salvar' : 'Cadastrar'}</button>
+    </div>
+    ${isEdit ? `
+    <label class="field-label" style="margin-top:20px">Personagens no banner</label>
+    <div id="nb-chars"></div>
+    <label class="field-label" style="margin-top:18px">Adicionar personagem</label>
+    <div class="pick-filters">
+      <input type="text" id="nb-pk-search" placeholder="Buscar nome...">
+      ${selectHtml('nb-pk-region', 'Região', editParams.region)}
+      ${selectHtml('nb-pk-affiliation', 'Afiliação', editParams.affiliation)}
+      ${selectHtml('nb-pk-element', 'Elemento', editParams.element)}
+      ${selectHtml('nb-pk-weapon', 'Arma', editParams.weapon)}
+      <select id="nb-pk-rarity"><option value="">Raridade: todas</option>
+        <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
+      </select>
+      <button type="button" class="btn small" id="nb-pk-sort" title="Ordenar por quem está há mais tempo sem aparecer em banners">&#x21C5; Mais tempo sem aparecer</button>
+    </div>
+    <div class="pick-grid" id="nb-pk-grid"></div>
+    ` : ''}`, { wide: isEdit });
 
   const majorSel = overlay.querySelector('#nb-major');
   const nameField = overlay.querySelector('#nb-name-field');
@@ -134,25 +490,156 @@ document.getElementById('new-banner-btn').addEventListener('click', () => {
   majorSel.addEventListener('change', syncName);
   syncName();
 
+  // banners especiais não são presos a uma metade (valem pela versão toda)
+  const typeSel = overlay.querySelector('#nb-type');
+  const halfField = overlay.querySelector('#nb-half-field');
+  function syncType() {
+    halfField.style.display = typeSel.value === 'especial' ? 'none' : 'block';
+  }
+  typeSel.addEventListener('change', syncType);
+  syncType();
+
   overlay.querySelector('[data-close]').onclick = () => closeModal(overlay);
   overlay.querySelector('[data-save]').onclick = async () => {
     try {
-      await api('/api/banners', {
-        method: 'POST',
+      const btype = typeSel.value;
+      await api(isEdit ? `/api/banners/${editBanner.id}` : '/api/banners', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           major: +majorSel.value,
           minor: +overlay.querySelector('#nb-minor').value,
-          type: overlay.querySelector('#nb-type').value,
+          half: btype === 'especial' ? null : +overlay.querySelector('#nb-half').value,
+          type: btype,
           version_name: nameInput.value.trim(),
         }),
       });
       closeModal(overlay);
-      toast('Banner cadastrado! Use o botão + para adicionar personagens.', 'success');
+      toast(isEdit ? 'Banner atualizado!' : 'Banner cadastrado! Use o botão + para adicionar personagens.', 'success');
       await load();
     } catch (err) { toast(err.message, 'error'); }
   };
-});
+
+  if (isEdit) initEditBannerChars(overlay, editBanner.id);
+}
+
+// ---------------------------------------------------------------- edição de personagens dentro do modal de banner
+function initEditBannerChars(overlay, bannerId) {
+  const charsEl = overlay.querySelector('#nb-chars');
+  const grid = overlay.querySelector('#nb-pk-grid');
+  let sortByWait = false;
+  const sortBtn = overlay.querySelector('#nb-pk-sort');
+  sortBtn.addEventListener('click', () => {
+    sortByWait = !sortByWait;
+    sortBtn.classList.toggle('primary', sortByWait);
+    renderGrid();
+  });
+
+  function currentBanner() {
+    return bannerData.banners.find((b) => b.id === bannerId);
+  }
+
+  function slotsLeft(rarity) {
+    const banner = currentBanner();
+    const limit = bannerData.limits[banner.type][rarity];
+    if (limit == null) return Infinity;
+    const inBanner = banner.characters.filter((c) => c.rarity === rarity).length;
+    return limit - inBanner;
+  }
+
+  function versionConflict(charId) {
+    return characterVersionConflict(currentBanner(), bannerId, charId);
+  }
+
+  function renderChars() {
+    const banner = currentBanner();
+    charsEl.innerHTML = banner.characters.length
+      ? charsSectionHtml(banner, { withAddBtn: false })
+      : '<div class="empty-state" style="padding:14px">Nenhum personagem neste banner ainda.</div>';
+    charsEl.querySelectorAll('.bc-remove').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        try {
+          await api(`/api/banners/${bannerId}/characters/${btn.dataset.char}`, { method: 'DELETE' });
+          await load();
+          renderChars();
+          renderGrid();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+  }
+
+  function renderGrid() {
+    const term = overlay.querySelector('#nb-pk-search').value.trim().toLowerCase();
+    const filters = {
+      region: overlay.querySelector('#nb-pk-region').value,
+      affiliation: overlay.querySelector('#nb-pk-affiliation').value,
+      element: overlay.querySelector('#nb-pk-element').value,
+      weapon: overlay.querySelector('#nb-pk-weapon').value,
+    };
+    const rarity = overlay.querySelector('#nb-pk-rarity').value;
+    const inBannerIds = new Set(currentBanner().characters.map((c) => c.id));
+
+    const chars = allChars.filter((c) => {
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (rarity && String(c.rarity) !== rarity) return false;
+      for (const [dim, val] of Object.entries(filters)) {
+        if (val && (c[dim].name || '') !== val) return false;
+      }
+      return true;
+    });
+
+    if (!chars.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:30px">Nenhum personagem encontrado.</div>';
+      return;
+    }
+    const banner = currentBanner();
+    const targetSeq = versionSeq(banner.major, banner.minor);
+    const gaps = sortByWait ? appearanceGapMap(banner.major, banner.minor) : null;
+    const rows = chars.map((c) => {
+      const full = slotsLeft(c.rarity) <= 0;
+      const state = pickState(banner, c, inBannerIds, full, versionConflict(c.id));
+      const count = appearanceCount(c.id, targetSeq);
+      return { c, state, count };
+    });
+    rows.sort((a, b) => Number(a.state.disabled) - Number(b.state.disabled)
+      || (sortByWait ? gaps[b.c.id] - gaps[a.c.id] : 0)
+      || a.c.name.localeCompare(b.c.name));
+    grid.innerHTML = rows.map(({ c, state, count }) => `
+        <div class="pick-card ${state.disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${state.reason || esc(c.name)}">
+          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
+          <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+          <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
+          <div class="pk-name">${esc(c.name)}</div>
+        </div>`).join('');
+
+    grid.querySelectorAll('.pick-card:not(.disabled)').forEach((card) =>
+      card.addEventListener('click', async () => {
+        try {
+          await api(`/api/banners/${bannerId}/characters`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ character_id: +card.dataset.char }),
+          });
+          await load();
+          renderChars();
+          renderGrid();
+        } catch (err) { toast(err.message, 'error'); }
+      }));
+    // banners especiais não têm metade própria (valem pela versão toda); usa a
+    // 2ª metade como referência para incluir toda a versão no cálculo do histórico
+    attachRarityHistoryHover(grid, () => {
+      const b = currentBanner();
+      return { major: b.major, minor: b.minor, half: b.half || 2 };
+    });
+  }
+
+  overlay.querySelectorAll('#nb-pk-search, #nb-pk-region, #nb-pk-affiliation, #nb-pk-element, #nb-pk-weapon, #nb-pk-rarity')
+    .forEach((el) => el.addEventListener('input', renderGrid));
+  overlay.addEventListener('mousedown', hideRarityHistoryPopover);
+  renderChars();
+  renderGrid();
+}
+
+document.getElementById('new-banner-btn').addEventListener('click', () => openNewBannerModal());
 
 async function renameVersion(major) {
   const current = bannerData.versions[major] || '';
@@ -180,7 +667,7 @@ async function renameVersion(major) {
 function deleteBanner(bannerId) {
   const banner = bannerData.banners.find((b) => b.id === bannerId);
   const overlay = openModal(`
-    <h3><span class="rune">&#x16DA;</span> Excluir banner ${banner.major}.${banner.minor}</h3>
+    <h3><span class="rune">&#x16DA;</span> Excluir banner ${banner.major}.${banner.minor} (${halfLabelText(banner.half)})</h3>
     <p style="color:var(--ink-2)">Os personagens não serão excluídos, apenas o banner.</p>
     <div class="modal-actions">
       <button class="btn" data-close>Cancelar</button>
@@ -196,9 +683,78 @@ function deleteBanner(bannerId) {
   };
 }
 
+// ---------------------------------------------------------------- painel lateral do picker
+// ícones (distintos) dos elementos que compõem o time onde o personagem está,
+// para facilitar identificar o time de relance
+function teamElementTagsHtml(team) {
+  const seen = new Set();
+  const tags = [];
+  team.members.forEach((m) => {
+    if (!m || !m.element_image || seen.has(m.element_name)) return;
+    seen.add(m.element_name);
+    tags.push(`<img class="sc-elem-tag" src="${esc(thumbUrl(m.element_image, 48))}" alt="${esc(m.element_name)}" title="${esc(m.element_name)}">`);
+  });
+  return tags.length ? `<span class="sc-elem-tags">${tags.join('')}</span>` : '';
+}
+
+// cartão de um personagem já incluído em um banner: mostra elemento, arma e o
+// time (com as tags de elemento do time) ao qual o personagem está cadastrado
+function sideCharCardHtml(c) {
+  const full = allChars.find((x) => x.id === c.id);
+  const element = full && full.element && full.element.name ? full.element.name : '—';
+  const elemImg = full && full.element && full.element.image
+    ? `<img class="sc-elem" src="${esc(thumbUrl(full.element.image, 48))}" alt="" title="${esc(element)}">` : '';
+  const weapon = full && full.weapon && full.weapon.name ? full.weapon.name : '—';
+  const team = allTeams.find((t) => t.members.some((m) => m && m.id === c.id));
+  return `
+    <div class="side-char-card">
+      <img class="sc-thumb" src="${esc(thumbUrl(c.card_promo, 120))}" alt="${esc(c.name)}">
+      <div class="side-char-info">
+        <div class="sc-name">${esc(c.name)}</div>
+        <div class="sc-meta">${elemImg}${esc(element)} &middot; ${esc(weapon)}</div>
+        <div class="sc-team">
+          <span class="sc-team-name">${team ? esc(team.name) : 'Sem time'}</span>
+          ${team ? teamElementTagsHtml(team) : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+// bloco de um banner no painel lateral: título + personagens já incluídos
+function sideBannerBlockHtml(b, title) {
+  const chars = b ? b.characters : [];
+  return `
+    <div class="side-block">
+      <h4>${esc(title)}</h4>
+      ${chars.length
+        ? chars.map(sideCharCardHtml).join('')
+        : '<div class="side-empty">Nenhum personagem ainda.</div>'}
+    </div>`;
+}
+
+// banners "irmãos" da mesma versão x.y (a outra metade e eventuais especiais),
+// que compõem o mesmo ciclo do banner que estamos montando
+function siblingBannersOf(banner) {
+  return bannerData.banners
+    .filter((b) => b.major === banner.major && b.minor === banner.minor && b.id !== banner.id)
+    .sort((a, b) => (a.half || 3) - (b.half || 3));
+}
+
+function pickSideHtml(bannerId) {
+  const current = bannerData.banners.find((b) => b.id === bannerId);
+  const siblings = siblingBannersOf(current);
+  const currentTitle = `Neste banner · ${current.major}.${current.minor} (${halfLabelText(current.half)})`;
+  const siblingsHtml = siblings.length
+    ? siblings.map((b) => sideBannerBlockHtml(b, `${b.major}.${b.minor} (${halfLabelText(b.half)})`)).join('')
+    : `<div class="side-block"><h4>Outra metade do ciclo</h4>
+         <div class="side-empty">Nenhum outro banner nesta versão ${current.major}.${current.minor} ainda.</div></div>`;
+  return sideBannerBlockHtml(current, currentTitle) + siblingsHtml;
+}
+
 // ---------------------------------------------------------------- modal de seleção
 async function openPicker(bannerId) {
   if (!allChars) allChars = await api('/api/characters');
+  if (!allTeams) allTeams = await api('/api/teams');
   const banner = bannerData.banners.find((b) => b.id === bannerId);
   const params = await api('/api/params');
 
@@ -208,27 +764,49 @@ async function openPicker(bannerId) {
     </select>`;
 
   const overlay = openModal(`
-    <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor}
+    <h3><span class="rune">&#x16A9;</span> Adicionar ao banner ${banner.major}.${banner.minor} (${halfLabelText(banner.half)})
       <span style="font-size:12px;color:var(--ink-3);font-weight:400">(${BANNER_TYPE_LABEL[banner.type]})</span>
     </h3>
-    <div class="pick-filters">
-      <input type="text" id="pk-search" placeholder="Buscar nome...">
-      ${selectHtml('pk-region', 'Região', params.region)}
-      ${selectHtml('pk-affiliation', 'Afiliação', params.affiliation)}
-      ${selectHtml('pk-element', 'Elemento', params.element)}
-      ${selectHtml('pk-weapon', 'Arma', params.weapon)}
-      <select id="pk-rarity"><option value="">Raridade: todas</option>
-        <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
-      </select>
-    </div>
-    <div class="pick-grid" id="pk-grid"></div>`, { wide: true });
+    <div class="pick-layout">
+      <div class="pick-main">
+        <div class="pick-filters">
+          <input type="text" id="pk-search" placeholder="Buscar nome...">
+          ${selectHtml('pk-region', 'Região', params.region)}
+          ${selectHtml('pk-affiliation', 'Afiliação', params.affiliation)}
+          ${selectHtml('pk-element', 'Elemento', params.element)}
+          ${selectHtml('pk-weapon', 'Arma', params.weapon)}
+          <select id="pk-rarity"><option value="">Raridade: todas</option>
+            <option value="5">5 Estrelas</option><option value="4">4 Estrelas</option>
+          </select>
+          <button type="button" class="btn small" id="pk-sort" title="Ordenar por quem está há mais tempo sem aparecer em banners">&#x21C5; Mais tempo sem aparecer</button>
+        </div>
+        <div class="pick-grid" id="pk-grid"></div>
+      </div>
+      <div class="pick-side" id="pk-side">${pickSideHtml(bannerId)}</div>
+    </div>`, { wide: true, picker: true });
 
   const grid = overlay.querySelector('#pk-grid');
+  const sidePanel = overlay.querySelector('#pk-side');
+  const refreshSide = () => { sidePanel.innerHTML = pickSideHtml(bannerId); };
+  const targetSeq = versionSeq(banner.major, banner.minor);
+  let sortByWait = false;
+  const sortBtn = overlay.querySelector('#pk-sort');
+  sortBtn.addEventListener('click', () => {
+    sortByWait = !sortByWait;
+    sortBtn.classList.toggle('primary', sortByWait);
+    renderGrid();
+  });
 
   function slotsLeft(rarity) {
+    const limit = bannerData.limits[banner.type][rarity];
+    if (limit == null) return Infinity;
     const inBanner = bannerData.banners.find((b) => b.id === bannerId).characters
       .filter((c) => c.rarity === rarity).length;
-    return bannerData.limits[banner.type][rarity] - inBanner;
+    return limit - inBanner;
+  }
+
+  function versionConflict(charId) {
+    return characterVersionConflict(banner, bannerId, charId);
   }
 
   function renderGrid() {
@@ -256,18 +834,23 @@ async function openPicker(bannerId) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:30px">Nenhum personagem encontrado.</div>';
       return;
     }
-    grid.innerHTML = chars.map((c) => {
-      const already = inBannerIds.has(c.id);
+    const gaps = sortByWait ? appearanceGapMap(banner.major, banner.minor) : null;
+    const rows = chars.map((c) => {
       const full = slotsLeft(c.rarity) <= 0;
-      const disabled = already || full;
-      const reason = already ? 'Já está no banner' : full ? `Limite de ${c.rarity}★ atingido` : '';
-      return `
-        <div class="pick-card ${disabled ? 'disabled' : ''}" data-char="${c.id}" title="${reason || esc(c.name)}">
+      const state = pickState(banner, c, inBannerIds, full, versionConflict(c.id));
+      const count = appearanceCount(c.id, targetSeq);
+      return { c, state, count };
+    });
+    rows.sort((a, b) => Number(a.state.disabled) - Number(b.state.disabled)
+      || (sortByWait ? gaps[b.c.id] - gaps[a.c.id] : 0)
+      || a.c.name.localeCompare(b.c.name));
+    grid.innerHTML = rows.map(({ c, state, count }) => `
+        <div class="pick-card ${state.disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${state.reason || esc(c.name)}">
           <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
+          <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
-        </div>`;
-    }).join('');
+        </div>`).join('');
 
     grid.querySelectorAll('.pick-card:not(.disabled)').forEach((card) =>
       card.addEventListener('click', async () => {
@@ -279,13 +862,20 @@ async function openPicker(bannerId) {
           });
           await load();
           renderGrid();
+          refreshSide();
         } catch (err) { toast(err.message, 'error'); }
       }));
+    attachRarityHistoryHover(grid, () => ({ major: banner.major, minor: banner.minor, half: banner.half || 2 }));
   }
 
   overlay.querySelectorAll('select, input').forEach((el) =>
     el.addEventListener('input', renderGrid));
+  overlay.addEventListener('mousedown', hideRarityHistoryPopover);
   renderGrid();
 }
+
+// quando o board não cabe na tela, a página toda ganha rolagem horizontal
+// nativa (barra de rolagem, Shift+roda do mouse ou gesto de trackpad); sem
+// hijack de wheel aqui para não travar a rolagem vertical normal da página
 
 load().catch((e) => toast(e.message, 'error'));

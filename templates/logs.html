@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Logs — Niro{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2><span class="rune">&#x16DE;</span> Logs</h2>
+    <p class="page-sub">Histórico de ações do sistema &middot; criações, edições, exclusões e erros</p>
+  </div>
+  <div class="page-header-actions">
+    <button class="btn" id="logs-refresh-btn">&#x21BB; Atualizar</button>
+    <button class="btn danger" id="logs-clear-btn">Limpar tudo</button>
+  </div>
+</div>
+
+<div class="pick-filters" style="margin-bottom:16px">
+  <input type="text" id="logs-search" placeholder="Buscar na mensagem ou ação...">
+  <select id="logs-level">
+    <option value="">Nível: todos</option>
+    <option value="info">Info</option>
+    <option value="success">Sucesso</option>
+    <option value="warning">Aviso</option>
+    <option value="error">Erro</option>
+  </select>
+  <select id="logs-action">
+    <option value="">Ação: todas</option>
+  </select>
+</div>
+
+<div id="logs-list">
+  <div class="empty-state glass"><span class="rune">&#x16DE;</span>Carregando...</div>
+</div>
+
+<div class="modal-actions" id="logs-pagination" style="justify-content:center"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+{% endblock %}

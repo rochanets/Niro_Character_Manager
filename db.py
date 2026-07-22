@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS characters (
     lore           TEXT,
     role1          TEXT,
     role2          TEXT,
+    edition        TEXT NOT NULL DEFAULT 'Padrão' CHECK (edition IN ('Limitado', 'Padrão', 'Inicial')),
     card_full      TEXT,
     card_promo     TEXT,
     archived       INTEGER NOT NULL DEFAULT 0,
@@ -75,10 +76,11 @@ CREATE TABLE IF NOT EXISTS banners (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
     minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
+    half       INTEGER CHECK (half IS NULL OR half IN (1, 2)),
     type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (major, minor)
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_banners_half ON banners(major, minor, half) WHERE half IS NOT NULL;
 CREATE TABLE IF NOT EXISTS banner_characters (
     banner_id    INTEGER NOT NULL REFERENCES banners(id) ON DELETE CASCADE,
     character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
@@ -88,6 +90,8 @@ CREATE TABLE IF NOT EXISTS teams (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
     gradient_mode INTEGER NOT NULL DEFAULT 0,
+    element1_id   INTEGER REFERENCES elements(id),
+    element2_id   INTEGER REFERENCES elements(id),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS team_members (
@@ -96,6 +100,26 @@ CREATE TABLE IF NOT EXISTS team_members (
     character_id INTEGER REFERENCES characters(id) ON DELETE CASCADE,
     UNIQUE (team_id, slot),
     UNIQUE (character_id)
+);
+CREATE TABLE IF NOT EXISTS logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    level      TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info', 'success', 'warning', 'error')),
+    action     TEXT NOT NULL,
+    message    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_logs_created_at ON logs(created_at);
+CREATE TABLE IF NOT EXISTS reactions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    element1_id  INTEGER NOT NULL REFERENCES elements(id) ON DELETE CASCADE,
+    element2_id  INTEGER NOT NULL REFERENCES elements(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    effect       TEXT,
+    image        TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (element1_id < element2_id),
+    UNIQUE (element1_id, element2_id)
 );
 """
 
@@ -120,8 +144,66 @@ def get_db():
     return conn
 
 
+def _migrate_banners_half(conn):
+    """Adiciona a coluna 'half' (1ª/2ª metade da versão) recriando a tabela,
+    já que a UNIQUE(major, minor) antiga precisa virar UNIQUE(major, minor, half)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(banners)")}
+    if "half" in cols:
+        return
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    conn.execute("ALTER TABLE banners RENAME TO banners_old")
+    conn.execute("""
+        CREATE TABLE banners (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
+            minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
+            half       INTEGER NOT NULL DEFAULT 1 CHECK (half IN (1, 2)),
+            type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (major, minor, half)
+        )
+    """)
+    conn.execute("""INSERT INTO banners (id, major, minor, half, type, created_at)
+                    SELECT id, major, minor, 1, type, created_at FROM banners_old""")
+    conn.execute("DROP TABLE banners_old")
+    conn.execute("PRAGMA legacy_alter_table = OFF")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_banners_special_half(conn):
+    """Permite banners do tipo 'especial' sem 'half' definido (valem pela versão
+    x.y inteira, não presos a uma metade), soltando a UNIQUE fixa em favor de um
+    índice único parcial que só vale para banners com half definido."""
+    half_col = next((r for r in conn.execute("PRAGMA table_info(banners)") if r[1] == "half"), None)
+    if half_col is not None and half_col[3] == 0:  # notnull == 0 já está nullable
+        return
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    conn.execute("ALTER TABLE banners RENAME TO banners_old")
+    conn.execute("""
+        CREATE TABLE banners (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            major      INTEGER NOT NULL CHECK (major BETWEEN 1 AND 8),
+            minor      INTEGER NOT NULL CHECK (minor BETWEEN 0 AND 8),
+            half       INTEGER CHECK (half IS NULL OR half IN (1, 2)),
+            type       TEXT NOT NULL CHECK (type IN ('unitario', 'duplo', 'especial')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""INSERT INTO banners (id, major, minor, half, type, created_at)
+                    SELECT id, major, minor,
+                           CASE WHEN type = 'especial' THEN NULL ELSE half END,
+                           type, created_at FROM banners_old""")
+    conn.execute("DROP TABLE banners_old")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_banners_half ON banners(major, minor, half) "
+                 "WHERE half IS NOT NULL")
+    conn.execute("PRAGMA legacy_alter_table = OFF")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
 def init_db():
-    for sub in ("characters", "elements", "weapons"):
+    for sub in ("characters", "elements", "weapons", "reactions"):
         os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
     conn = get_db()
     conn.executescript(SCHEMA)
@@ -129,6 +211,18 @@ def init_db():
     for col in ("role1", "role2"):
         if col not in existing:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
+    if "edition" not in existing:
+        conn.execute("ALTER TABLE characters ADD COLUMN edition TEXT NOT NULL DEFAULT 'Padrão'")
+    existing_teams = {row[1] for row in conn.execute("PRAGMA table_info(teams)")}
+    for col in ("element1_id", "element2_id"):
+        if col not in existing_teams:
+            conn.execute(f"ALTER TABLE teams ADD COLUMN {col} INTEGER REFERENCES elements(id)")
+    if "reaction_id" not in existing_teams:
+        conn.execute("ALTER TABLE teams ADD COLUMN reaction_id INTEGER REFERENCES reactions(id) ON DELETE SET NULL")
+    if "reaction_cleared" not in existing_teams:
+        conn.execute("ALTER TABLE teams ADD COLUMN reaction_cleared INTEGER NOT NULL DEFAULT 0")
+    _migrate_banners_half(conn)
+    _migrate_banners_special_half(conn)
     if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():
         conn.executemany("INSERT INTO roles (name, description) VALUES (?, ?)", DEFAULT_ROLES)
     conn.commit()

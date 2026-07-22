@@ -26,7 +26,7 @@
   <aside class="sidebar glass">
     <div class="sidebar-brand">
       <span class="brand-rune">&#x16DE;</span>
-      <div>
+      <div class="sidebar-brand-text">
         <h1>NIRO</h1>
         <span class="brand-sub">Character Manager</span>
       </div>
@@ -35,27 +35,35 @@
     <nav class="sidebar-nav">
       <a href="/chars" class="nav-item {{ 'active' if active == 'chars' }}">
         <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5Z"/></svg>
-        Chars
+        <span class="nav-label">Chars</span>
       </a>
       <a href="/times" class="nav-item {{ 'active' if active == 'teams' }}">
         <svg viewBox="0 0 24 24"><path d="M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5C15 14.2 10.3 13 8 13Zm8 0c-.3 0-.6 0-1 .1a4.2 4.2 0 0 1 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5Z"/></svg>
-        Times
+        <span class="nav-label">Times</span>
+      </a>
+      <a href="/reacoes" class="nav-item {{ 'active' if active == 'reactions' }}">
+        <svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5Zm0 20 10-5v-6l-10 5-10-5v6Zm0-8 10-5v-2l-10 5-10-5v2Z"/></svg>
+        <span class="nav-label">Reações</span>
       </a>
       <a href="/banners" class="nav-item {{ 'active' if active == 'banners' }}">
         <svg viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v16.5l-8-4-8 4V4a1 1 0 0 1 1-1Z"/></svg>
-        Banners
+        <span class="nav-label">Banners</span>
       </a>
       <a href="/historico" class="nav-item {{ 'active' if active == 'history' }}">
         <svg viewBox="0 0 24 24"><path d="M4 5h4v14H4zM10 9h4v10h-4zM16 12h4v7h-4z"/></svg>
-        Histórico
+        <span class="nav-label">Histórico</span>
       </a>
       <a href="/parametros" class="nav-item {{ 'active' if active == 'params' }}">
         <svg viewBox="0 0 24 24"><path d="M19.4 13a7.8 7.8 0 0 0 .1-1 7.8 7.8 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7L19.6 5.3a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1L14.4 2.5a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4L9.2 5.1a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2L2.4 8.7a.5.5 0 0 0 .1.7L4.6 11a7.8 7.8 0 0 0-.1 1 7.8 7.8 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l1.9 3.4a.5.5 0 0 0 .6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1a.5.5 0 0 0 .6-.2l1.9-3.4a.5.5 0 0 0-.1-.7ZM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5Z"/></svg>
-        Parâmetros
+        <span class="nav-label">Parâmetros</span>
       </a>
       <a href="/arquivo" class="nav-item {{ 'active' if active == 'archive' }}">
         <svg viewBox="0 0 24 24"><path d="M20 6H4a1 1 0 0 0-1 1v2h18V7a1 1 0 0 0-1-1ZM4 20a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V10.5H4Zm5.5-7h5a.8.8 0 0 1 0 1.5h-5a.8.8 0 0 1 0-1.5Z"/></svg>
-        Arquivo
+        <span class="nav-label">Arquivo</span>
+      </a>
+      <a href="/logs" class="nav-item nav-item-logs {{ 'active' if active == 'logs' }}">
+        <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm8 1.5V8h4.5ZM7 12h10v1.5H7Zm0 4h10v1.5H7Zm0-8h5v1.5H7Z"/></svg>
+        <span class="nav-label">Logs</span>
       </a>
     </nav>
     <div class="sidebar-footer">

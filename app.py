@@ -760,58 +760,74 @@ def api_backup_import():
         return jsonify(error="Envie o arquivo .zip de backup."), 400
     if not file.filename.lower().endswith(".zip"):
         return jsonify(error="Formato inválido. Envie o arquivo .zip gerado pela exportação."), 400
+
+    tmp_zip = None
+    tmp_db = DB_PATH + ".import"
     try:
-        zf = zipfile.ZipFile(io.BytesIO(file.read()))
-    except zipfile.BadZipFile:
-        return jsonify(error="Arquivo .zip inválido ou corrompido."), 400
+        # Grava o upload em disco por streaming — não carrega o zip inteiro na
+        # memória. Backups grandes carregados na RAM podiam estourar o limite de
+        # memória do container e derrubar o worker (o navegador via "Failed to fetch").
+        fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(tmp_db))
+        os.close(fd)
+        file.save(tmp_zip)
 
-    with zf:
-        db_member = _find_db_member(zf)
-        if db_member is None:
-            return jsonify(error="O .zip não contém o banco de dados (niro.db)."), 400
-
-        # Escreve o banco num arquivo temporário e valida antes de substituir o atual.
-        tmp_db = DB_PATH + ".import"
         try:
+            zf = zipfile.ZipFile(tmp_zip)
+        except zipfile.BadZipFile:
+            return jsonify(error="Arquivo .zip inválido ou corrompido."), 400
+
+        with zf:
+            db_member = _find_db_member(zf)
+            if db_member is None:
+                return jsonify(error="O .zip não contém o banco de dados (niro.db)."), 400
+
+            # Extrai o banco num arquivo temporário e valida antes de substituir o atual.
             with zf.open(db_member) as src, open(tmp_db, "wb") as dst:
                 shutil.copyfileobj(src, dst)
-            test = sqlite3.connect(tmp_db)
             try:
-                test.execute("SELECT 1 FROM characters LIMIT 1").fetchone()
-            finally:
-                test.close()
-        except Exception:
-            if os.path.isfile(tmp_db):
-                os.remove(tmp_db)
-            return jsonify(error="O banco enviado não é um niro.db válido."), 400
+                test = sqlite3.connect(tmp_db)
+                try:
+                    test.execute("SELECT 1 FROM characters LIMIT 1").fetchone()
+                finally:
+                    test.close()
+            except Exception:
+                return jsonify(error="O banco enviado não é um niro.db válido."), 400
 
-        # Extrai as imagens (com proteção contra path traversal / zip slip).
-        images = 0
-        uploads_root = os.path.normpath(UPLOAD_DIR)
-        for member in zf.namelist():
-            rel = _upload_rel_parts(member)
-            if rel is None:
-                continue
-            dest = os.path.normpath(os.path.join(UPLOAD_DIR, *rel))
-            if not dest.startswith(uploads_root + os.sep):
-                continue
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            with zf.open(member) as src, open(dest, "wb") as out:
-                shutil.copyfileobj(src, out)
-            images += 1
+            # Extrai as imagens (com proteção contra path traversal / zip slip).
+            images = 0
+            uploads_root = os.path.normpath(UPLOAD_DIR)
+            for member in zf.namelist():
+                rel = _upload_rel_parts(member)
+                if rel is None:
+                    continue
+                dest = os.path.normpath(os.path.join(UPLOAD_DIR, *rel))
+                if not dest.startswith(uploads_root + os.sep):
+                    continue
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(member) as src, open(dest, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                images += 1
 
-    # Substitui o banco atomicamente e limpa o cache de miniaturas.
-    os.replace(tmp_db, DB_PATH)
-    thumb_dir = os.path.join(UPLOAD_DIR, ".thumbs")
-    if os.path.isdir(thumb_dir):
-        shutil.rmtree(thumb_dir, ignore_errors=True)
+        # Substitui o banco atomicamente e limpa o cache de miniaturas.
+        os.replace(tmp_db, DB_PATH)
+        tmp_db = None
+        thumb_dir = os.path.join(UPLOAD_DIR, ".thumbs")
+        if os.path.isdir(thumb_dir):
+            shutil.rmtree(thumb_dir, ignore_errors=True)
 
-    # Garante que o schema/migrações estejam aplicados ao banco importado.
-    init_db()
-    conn = get_db()
-    total = conn.execute("SELECT COUNT(*) AS n FROM characters").fetchone()["n"]
-    conn.close()
-    return jsonify(ok=True, images=images, characters=total)
+        # Garante que o schema/migrações estejam aplicados ao banco importado.
+        init_db()
+        conn = get_db()
+        total = conn.execute("SELECT COUNT(*) AS n FROM characters").fetchone()["n"]
+        conn.close()
+        return jsonify(ok=True, images=images, characters=total)
+    finally:
+        for tmp in (tmp_zip, tmp_db):
+            if tmp and os.path.isfile(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
 
 # ---------------------------------------------------------------- thumbnails

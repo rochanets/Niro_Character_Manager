@@ -824,8 +824,11 @@ def thumb_image(rel, width):
     """Serve uma versão reduzida (LANCZOS, alta qualidade) das imagens enviadas,
     evitando a distorção do downscale feito pelo navegador em imagens grandes."""
     width = max(16, min(width, 1600))
-    # rel chega como "uploads/<subdir>/<arquivo>"; resolve dentro do DATA_DIR.
-    src = os.path.normpath(os.path.join(DATA_DIR, rel.replace("/", os.sep)))
+    # rel chega como "uploads/<subdir>/<arquivo>". O diretório-pai de UPLOAD_DIR
+    # já contém a pasta "uploads", tanto localmente (static/uploads) quanto na
+    # nuvem (DATA_DIR/uploads), então resolve para o arquivo certo nos dois casos.
+    base = os.path.dirname(os.path.normpath(UPLOAD_DIR))
+    src = os.path.normpath(os.path.join(base, rel.replace("/", os.sep)))
     uploads_root = os.path.normpath(UPLOAD_DIR)
     if not src.startswith(uploads_root + os.sep) or not os.path.isfile(src):
         abort(404)

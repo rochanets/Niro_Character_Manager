@@ -9,6 +9,7 @@ import socket
 import sqlite3
 import tempfile
 import threading
+import time
 import unicodedata
 import webbrowser
 import zipfile
@@ -452,46 +453,30 @@ def api_export():
 
 @app.route("/api/import", methods=["POST"])
 def api_import():
+    """Compatibilidade com a tela antiga de importação.
+
+    O front-end atual usa /api/backup/import_chunk. Mantemos esta rota para
+    backups pequenos, mas aplicamos exatamente o mesmo importador validado e
+    baseado em disco em vez de extractall() e de substituir arquivos no meio
+    da validação.
+    """
     file = request.files.get("file")
     if not file or not file.filename:
         return jsonify(error="Envie um arquivo .zip."), 400
+    fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(DB_PATH))
+    os.close(fd)
     try:
-        zf = zipfile.ZipFile(file.stream)
-    except zipfile.BadZipFile:
-        return jsonify(error="Arquivo inválido: não é um .zip."), 400
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
+        file.save(tmp_zip)
+        images, total = _run_backup_import(tmp_zip)
+        _log("success", "import", f"Import legado concluído: {total} personagem(ns), {images} imagem(ns)")
+        return jsonify(ok=True, images=images, characters=total)
+    except BackupError as exc:
+        return jsonify(error=str(exc)), 400
+    finally:
         try:
-            zf.extractall(tmp_dir)
-        except Exception:
-            return jsonify(error="Não foi possível extrair o .zip."), 400
-
-        tmp_db = os.path.join(tmp_dir, "niro.db")
-        if not os.path.isfile(tmp_db):
-            return jsonify(error="ZIP inválido: niro.db não encontrado (use um backup gerado pelo próprio Niro)."), 400
-        try:
-            check = sqlite3.connect(tmp_db)
-            check.execute("SELECT 1 FROM characters LIMIT 1")
-            check.close()
-        except sqlite3.Error:
-            return jsonify(error="ZIP inválido: o banco de dados está corrompido ou não é do Niro."), 400
-
-        shutil.copyfile(tmp_db, DB_PATH)
-
-        tmp_uploads = os.path.join(tmp_dir, "uploads")
-        if os.path.isdir(UPLOAD_DIR):
-            shutil.rmtree(UPLOAD_DIR)
-        if os.path.isdir(tmp_uploads):
-            shutil.copytree(tmp_uploads, UPLOAD_DIR)
-        else:
-            os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-    init_db()
-    conn = get_db()
-    log_event(conn, "warning", "backup.importado", f"Backup \"{file.filename}\" importado (substituiu todos os dados).")
-    conn.commit()
-    conn.close()
-    return jsonify(ok=True)
+            os.remove(tmp_zip)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- API: personagens
@@ -724,6 +709,8 @@ def api_import_sheet():
 # ---------------------------------------------------------------- API: backup (banco + imagens)
 
 BACKUP_KNOWN_SUBDIRS = {"characters", "elements", "weapons"}
+MAX_BACKUP_MEMBERS = 20_000
+MAX_BACKUP_UNCOMPRESSED = 3 * 1024 * 1024 * 1024  # protege o volume contra zip bombs
 
 
 @app.route("/api/backup/export")
@@ -784,7 +771,9 @@ def _run_backup_import(zip_path):
     """Aplica um backup a partir de um .zip já gravado em disco: substitui o banco
     e mescla as imagens. Devolve (images, characters). Lança BackupError em falha
     de validação. Uso de memória constante (lê tudo do disco por streaming)."""
-    tmp_db = DB_PATH + ".import"
+    fd, tmp_db = tempfile.mkstemp(prefix="niro-", suffix=".import",
+                                  dir=os.path.dirname(DB_PATH))
+    os.close(fd)
     try:
         try:
             zf = zipfile.ZipFile(zip_path)
@@ -792,6 +781,13 @@ def _run_backup_import(zip_path):
             raise BackupError("Arquivo .zip inválido ou corrompido.")
 
         with zf:
+            members = zf.infolist()
+            if len(members) > MAX_BACKUP_MEMBERS:
+                raise BackupError("O backup contém arquivos demais para ser processado com segurança.")
+            unpacked_size = sum(member.file_size for member in members)
+            if unpacked_size > MAX_BACKUP_UNCOMPRESSED:
+                raise BackupError("O conteúdo descompactado do backup excede o limite de 3 GB.")
+
             db_member = _find_db_member(zf)
             if db_member is None:
                 raise BackupError("O .zip não contém o banco de dados (niro.db).")
@@ -876,6 +872,7 @@ def api_backup_import():
 # ---- Upload em partes (chunked): contorna o limite de tamanho do edge/proxy ----
 
 IMPORT_PARTS_DIR = os.path.join(DATA_DIR, ".import_parts")
+IMPORT_CHUNK_LIMIT = 5 * 1024 * 1024
 
 
 def _import_part_path(upload_id):
@@ -887,25 +884,76 @@ def _import_part_path(upload_id):
     return os.path.join(IMPORT_PARTS_DIR, upload_id + ".part")
 
 
+def _cleanup_stale_import_parts(max_age=24 * 60 * 60):
+    """Remove apenas uploads temporários abandonados há mais de 24 horas."""
+    if not os.path.isdir(IMPORT_PARTS_DIR):
+        return
+    cutoff = time.time() - max_age
+    for name in os.listdir(IMPORT_PARTS_DIR):
+        path = os.path.join(IMPORT_PARTS_DIR, name)
+        try:
+            if name.endswith(".part") and os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+        except OSError:
+            pass
+
+
 @app.route("/api/backup/import_chunk", methods=["POST"])
 def api_backup_import_chunk():
     """Recebe um pedaço do .zip e o anexa ao arquivo temporário do upload.
     index=0 inicia (trunca) o arquivo; os demais são anexados em ordem."""
     upload_id = request.args.get("upload_id", "")
     index = request.args.get("index", type=int)
+    offset = request.args.get("offset", type=int)
     path = _import_part_path(upload_id)
-    if index is None or index < 0:
+    if index is None or index < 0 or offset is None or offset < 0:
         return jsonify(error="Índice de parte inválido."), 400
-    # Integridade de ordem: o tamanho atual deve bater com o esperado.
+    content_length = request.content_length
+    if content_length is not None and content_length > IMPORT_CHUNK_LIMIT:
+        return jsonify(error="Parte grande demais; envie blocos de no máximo 5 MB."), 413
+
+    if index == 0 and offset == 0:
+        _cleanup_stale_import_parts()
+
+    # Integridade e idempotência: uma resposta perdida pode fazer o navegador
+    # reenviar a mesma parte. Nesse caso confirmamos sem duplicar os bytes.
     current = os.path.getsize(path) if os.path.isfile(path) else 0
+    expected_end = offset + content_length if content_length is not None else None
+    if expected_end is not None and current == expected_end:
+        return jsonify(ok=True, received=content_length, size=current, duplicate=True)
+    if current != offset:
+        return jsonify(error=(f"Parte fora de ordem: servidor possui {current} bytes, "
+                              f"mas o navegador tentou continuar em {offset}.")), 409
     if index == 0:
-        open(path, "wb").close()  # reinicia
-        current = 0
         _log("info", "import", "Upload em partes iniciado (chunk 0 recebido)")
-    chunk = request.get_data(cache=False)
-    with open(path, "ab") as f:
-        f.write(chunk)
-    return jsonify(ok=True, received=len(chunk), size=current + len(chunk))
+
+    received = 0
+    try:
+        with open(path, "ab") as f:
+            while True:
+                chunk = request.stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > IMPORT_CHUNK_LIMIT:
+                    raise BackupError("Parte grande demais; envie blocos de no máximo 5 MB.")
+                f.write(chunk)
+    except BackupError as exc:
+        # Não deixa uma parte incompleta contaminar uma nova tentativa.
+        try:
+            with open(path, "r+b") as f:
+                f.truncate(offset)
+        except OSError:
+            pass
+        return jsonify(error=str(exc)), 413
+    except Exception:
+        try:
+            with open(path, "r+b") as f:
+                f.truncate(offset)
+        except OSError:
+            pass
+        raise
+    return jsonify(ok=True, received=received, size=current + received)
 
 
 @app.route("/api/backup/import_finalize", methods=["POST"])
@@ -916,6 +964,12 @@ def api_backup_import_finalize():
     if not os.path.isfile(path):
         return jsonify(error="Upload não encontrado. Refaça o envio."), 400
     size = os.path.getsize(path)
+    expected_size = request.args.get("expected_size", type=int)
+    if expected_size is None or expected_size < 1:
+        return jsonify(error="Tamanho esperado do backup não informado."), 400
+    if size != expected_size:
+        return jsonify(error=(f"Upload incompleto: recebidos {size} de {expected_size} bytes. "
+                              "Refaça o envio.")), 409
     _log("info", "import", f"Finalizando upload em partes: {size} bytes remontados")
     try:
         images, total = _run_backup_import(path)

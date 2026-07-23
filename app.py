@@ -30,6 +30,30 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB por request (backups completos em zip)
 
 
+@app.url_defaults
+def _static_cache_bust(endpoint, values):
+    """Anexa ?v=<mtime> às URLs de arquivos estáticos (css/js). A cada deploy o
+    mtime muda, então o navegador é obrigado a baixar a versão nova — evita ficar
+    preso a um JS/CSS antigo em cache mesmo depois de mudanças."""
+    if endpoint == "static" and "filename" in values:
+        try:
+            fpath = os.path.join(app.static_folder, values["filename"])
+            values["v"] = int(os.stat(fpath).st_mtime)
+        except OSError:
+            pass
+
+
+def _log(level, action, message):
+    """Registra um evento no módulo Logs de forma segura (nunca quebra a rota)."""
+    try:
+        conn = get_db()
+        log_event(conn, level, action, message)
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def _on_request_exception(sender, exception, **extra):
     """Registra qualquer exceção não tratada de uma requisição no módulo Logs,
     sem alterar o comportamento normal de erro do Flask (via sinal, não errorhandler)."""
@@ -831,11 +855,13 @@ def api_backup_import():
     if not file.filename.lower().endswith(".zip"):
         return jsonify(error="Formato inválido. Envie o arquivo .zip gerado pela exportação."), 400
 
+    _log("info", "import", f"Import (envio único) recebido: {request.content_length or 0} bytes")
     fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(DB_PATH))
     os.close(fd)
     try:
         file.save(tmp_zip)  # streaming em disco, sem carregar tudo na memória
         images, total = _run_backup_import(tmp_zip)
+        _log("success", "import", f"Import concluído: {total} personagem(ns), {images} imagem(ns)")
         return jsonify(ok=True, images=images, characters=total)
     except BackupError as exc:
         return jsonify(error=str(exc)), 400
@@ -875,6 +901,7 @@ def api_backup_import_chunk():
     if index == 0:
         open(path, "wb").close()  # reinicia
         current = 0
+        _log("info", "import", "Upload em partes iniciado (chunk 0 recebido)")
     chunk = request.get_data(cache=False)
     with open(path, "ab") as f:
         f.write(chunk)
@@ -888,10 +915,14 @@ def api_backup_import_finalize():
     path = _import_part_path(upload_id)
     if not os.path.isfile(path):
         return jsonify(error="Upload não encontrado. Refaça o envio."), 400
+    size = os.path.getsize(path)
+    _log("info", "import", f"Finalizando upload em partes: {size} bytes remontados")
     try:
         images, total = _run_backup_import(path)
+        _log("success", "import", f"Import concluído: {total} personagem(ns), {images} imagem(ns)")
         return jsonify(ok=True, images=images, characters=total)
     except BackupError as exc:
+        _log("error", "import", f"Falha ao aplicar backup: {exc}")
         return jsonify(error=str(exc)), 400
     finally:
         if os.path.isfile(path):

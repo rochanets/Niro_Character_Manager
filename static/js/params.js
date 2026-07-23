@@ -67,13 +67,15 @@ function renderData() {
     btn.textContent = 'Importando…';
     progress.style.display = 'block';
     try {
-      const res = await uploadBackupInChunks(file, (sent, total) => {
+      const res = await uploadBackupInChunks(file, (sent, total, finalizing = false) => {
         const pct = Math.round((sent / total) * 100);
         bar.style.width = pct + '%';
-        status.textContent = `Enviando… ${pct}% (${fmtMB(sent)} / ${fmtMB(total)} MB)`;
+        status.textContent = finalizing
+          ? 'Aplicando backup no servidor…'
+          : `Enviando… ${pct}% (${fmtMB(sent)} / ${fmtMB(total)} MB)`;
       });
       bar.style.width = '100%';
-      status.textContent = 'Aplicando backup no servidor…';
+      status.textContent = 'Backup aplicado com sucesso.';
       toast(`Backup importado: ${res.characters} personagem(ns) e ${res.images} imagem(ns).`, 'success');
       setTimeout(() => window.location.reload(), 1400);
     } catch (err) {
@@ -93,6 +95,7 @@ function fmtMB(bytes) {
 // do edge/proxy da hospedagem, e só então dispara a aplicação do backup.
 async function uploadBackupInChunks(file, onProgress) {
   const CHUNK = 4 * 1024 * 1024;
+  const MAX_ATTEMPTS = 4;
   const uploadId = (crypto.randomUUID
     ? crypto.randomUUID().replace(/-/g, '')
     : (Date.now().toString(16) + Math.random().toString(16).slice(2))).slice(0, 32);
@@ -100,21 +103,40 @@ async function uploadBackupInChunks(file, onProgress) {
   let index = 0;
   while (sent < file.size) {
     const blob = file.slice(sent, sent + CHUNK);
-    const resp = await fetch(`/api/backup/import_chunk?upload_id=${uploadId}&index=${index}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: blob,
-    });
-    if (!resp.ok) {
-      let msg = `Erro ${resp.status} ao enviar parte ${index + 1}`;
-      try { const b = await resp.json(); if (b && b.error) msg = b.error; } catch (_) {}
-      throw new Error(msg);
+    let completed = false;
+    let lastError = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS && !completed; attempt += 1) {
+      try {
+        const resp = await fetch(
+          `/api/backup/import_chunk?upload_id=${uploadId}&index=${index}&offset=${sent}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: blob,
+          },
+        );
+        if (resp.ok) {
+          completed = true;
+          break;
+        }
+        let msg = `Erro ${resp.status} ao enviar parte ${index + 1}`;
+        try { const b = await resp.json(); if (b && b.error) msg = b.error; } catch (_) {}
+        lastError = new Error(msg);
+        if (resp.status < 500 && resp.status !== 408 && resp.status !== 429) break;
+      } catch (_) {
+        lastError = new Error(`Falha de rede ao enviar a parte ${index + 1} do backup.`);
+      }
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      }
     }
+    if (!completed) throw lastError || new Error(`Não foi possível enviar a parte ${index + 1}.`);
     sent += blob.size;
     index += 1;
     if (onProgress) onProgress(sent, file.size);
   }
-  return api(`/api/backup/import_finalize?upload_id=${uploadId}`, { method: 'POST' });
+  if (onProgress) onProgress(file.size, file.size, true);
+  return api(`/api/backup/import_finalize?upload_id=${uploadId}&expected_size=${file.size}`, { method: 'POST' });
 }
 
 function renderAdd() {
@@ -295,11 +317,12 @@ document.getElementById('import-file').addEventListener('change', function () {
   overlay.querySelector('[data-confirm]').onclick = async () => {
     const btn = overlay.querySelector('[data-confirm]');
     btn.disabled = true;
-    btn.textContent = 'Importando...';
-    const fd = new FormData();
-    fd.append('file', file);
+    btn.textContent = 'Importando… 0%';
     try {
-      await api('/api/import', { method: 'POST', body: fd });
+      await uploadBackupInChunks(file, (sent, total, finalizing = false) => {
+        const pct = Math.round((sent / total) * 100);
+        btn.textContent = finalizing ? 'Aplicando backup…' : `Importando… ${pct}%`;
+      });
       toast('Backup importado! Recarregando...', 'success');
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {

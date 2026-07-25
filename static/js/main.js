@@ -1,5 +1,40 @@
 /* Utilidades compartilhadas — Niro Character Manager */
 
+// ---------------------------------------------------------------- menu lateral
+const SIDEBAR_KEY = 'niro:sidebar:expanded';
+
+function initSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const toggle = sidebar && sidebar.querySelector('.sidebar-toggle');
+  if (!sidebar || !toggle) return;
+
+  let expanded = false;
+  try { expanded = localStorage.getItem(SIDEBAR_KEY) === '1'; } catch (_) { /* storage indisponível */ }
+
+  function setExpanded(next, persist = true) {
+    expanded = next;
+    sidebar.classList.toggle('is-expanded', expanded);
+    toggle.setAttribute('aria-expanded', String(expanded));
+    const action = expanded ? 'Fechar' : 'Abrir';
+    toggle.setAttribute('aria-label', `${action} menu lateral`);
+    toggle.title = `${action} menu lateral`;
+    if (persist) {
+      try { localStorage.setItem(SIDEBAR_KEY, expanded ? '1' : '0'); } catch (_) { /* storage indisponível */ }
+    }
+  }
+
+  setExpanded(expanded, false);
+  toggle.addEventListener('click', () => setExpanded(!expanded));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && expanded) {
+      setExpanded(false);
+      toggle.focus();
+    }
+  });
+}
+
+initSidebar();
+
 // ---------------------------------------------------------------- fetch
 async function api(url, options = {}) {
   const resp = await fetch(url, options);

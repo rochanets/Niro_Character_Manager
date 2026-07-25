@@ -23,7 +23,17 @@
   <div class="bg-runes" aria-hidden="true"></div>
   <div class="bg-glow" aria-hidden="true"></div>
 
-  <aside class="sidebar glass">
+  <aside class="sidebar glass" aria-label="Navegação principal">
+    <button
+      type="button"
+      class="sidebar-toggle"
+      aria-controls="main-navigation"
+      aria-expanded="false"
+      aria-label="Abrir menu lateral"
+      title="Abrir menu lateral"
+    >
+      <span aria-hidden="true">&#x203A;</span>
+    </button>
     <div class="sidebar-brand">
       <span class="brand-rune">&#x16DE;</span>
       <div class="sidebar-brand-text">
@@ -32,7 +42,7 @@
       </div>
     </div>
     <div class="rune-divider" aria-hidden="true">&#x16A0; &#x16B1; &#x16C7; &#x16D2; &#x16DE;</div>
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" id="main-navigation">
       <a href="/chars" class="nav-item {{ 'active' if active == 'chars' }}">
         <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5Z"/></svg>
         <span class="nav-label">Chars</span>

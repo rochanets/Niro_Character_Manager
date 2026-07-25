@@ -72,13 +72,27 @@ function toast(message, type = '') {
 function openModal(html, { wide = false, picker = false } = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = `<div class="modal ${wide ? 'wide' : ''} ${picker ? 'picker' : ''}">${html}</div>`;
+  overlay.innerHTML = `
+    <div class="modal ${wide ? 'wide' : ''} ${picker ? 'picker' : ''}" role="dialog" aria-modal="true">
+      <button type="button" class="modal-close" aria-label="Fechar janela" title="Fechar">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7a1 1 0 0 0-1.4 1.4l4.9 4.9-4.9 4.9a1 1 0 1 0 1.4 1.4l4.9-4.9 4.9 4.9a1 1 0 0 0 1.4-1.4L13.4 12l4.9-4.9a1 1 0 0 0 0-1.4Z"/>
+        </svg>
+      </button>
+      ${html}
+    </div>`;
+  const dismiss = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onEsc);
+  };
   overlay.addEventListener('mousedown', (e) => {
-    if (e.target === overlay) overlay.remove();
+    if (e.target === overlay) dismiss();
   });
   const onEsc = (e) => {
-    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); }
+    if (e.key === 'Escape') dismiss();
   };
+  overlay.querySelector('.modal-close').addEventListener('click', dismiss);
+  overlay._dismiss = dismiss;
   document.addEventListener('keydown', onEsc);
   document.getElementById('modal-root').appendChild(overlay);
   return overlay;
@@ -86,7 +100,10 @@ function openModal(html, { wide = false, picker = false } = {}) {
 
 function closeModal(node) {
   const overlay = node.closest ? node.closest('.modal-overlay') : node;
-  if (overlay) overlay.remove();
+  if (overlay) {
+    if (overlay._dismiss) overlay._dismiss();
+    else overlay.remove();
+  }
 }
 
 // ---------------------------------------------------------------- input de imagem

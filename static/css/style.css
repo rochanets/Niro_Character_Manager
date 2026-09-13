@@ -38,6 +38,10 @@
   --nav-border: rgba(255, 255, 255, 0.16);
   --nav-ink: #d3d6ec;
 
+  /* aba Chars: os cards sao brancos, entao o menu fica totalmente opaco */
+  --nav-bg-top-solid: #0b0b15;
+  --nav-bg-bottom-solid: #030307;
+
   --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -91,6 +95,15 @@ body {
   border: 1px solid var(--nav-border);
   box-shadow: 0 12px 44px rgba(0, 0, 0, 0.6);
 }
+/* Chars: cards brancos atras do menu — fundo 100% opaco, sem translucidez */
+.page-chars .sidebar {
+  background: linear-gradient(180deg, var(--nav-bg-top-solid), var(--nav-bg-bottom-solid));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 14px 50px rgba(0, 0, 0, 0.75);
+}
+
 .sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 4px; }
 .brand-rune {
   font-size: 30px; line-height: 1;
@@ -652,6 +665,11 @@ select option.opt-star4 { color: var(--star4); }
     white-space: nowrap;
   }
   .nav-item.active { background: rgba(90, 215, 232, 0.22); }
+  .page-chars .sidebar {
+    background: linear-gradient(180deg, var(--nav-bg-top-solid), var(--nav-bg-bottom-solid));
+    border-top-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.7);
+  }
   .content { margin-left: 0; padding: 18px 14px 90px; }
 }
 

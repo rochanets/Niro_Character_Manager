@@ -226,7 +226,7 @@ function bannerCharHtml(banner, c) {
   const first = isFirstAppearance(banner, c.id);
   return `
     <div class="banner-char r${c.rarity} ${first ? 'bc-first' : ''}" title="${esc(c.name)} (${c.rarity}★)${first ? ' — estreia em banner' : ''}">
-      <img src="${esc(thumbUrl(c.card_promo, 220))}" alt="${esc(c.name)}">
+      <img src="${esc(thumbUrl(c.card_promo, 220))}" alt="${esc(c.name)}"${demoAttr(c)}>
       <div class="bc-name">${esc(c.name)}</div>
       <button class="bc-remove" data-banner="${banner.id}" data-char="${c.id}" title="Remover do banner">&#x2715;</button>
     </div>`;
@@ -605,7 +605,7 @@ function initEditBannerChars(overlay, bannerId) {
       || a.c.name.localeCompare(b.c.name));
     grid.innerHTML = rows.map(({ c, state, count }) => `
         <div class="pick-card ${state.disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${state.reason || esc(c.name)}">
-          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
+          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy"${demoAttr(c)}>
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>
@@ -708,7 +708,7 @@ function sideCharCardHtml(c) {
   const team = allTeams.find((t) => t.members.some((m) => m && m.id === c.id));
   return `
     <div class="side-char-card">
-      <img class="sc-thumb" src="${esc(thumbUrl(c.card_promo, 120))}" alt="${esc(c.name)}">
+      <img class="sc-thumb" src="${esc(thumbUrl(c.card_promo, 120))}" alt="${esc(c.name)}"${demoAttr(c)}>
       <div class="side-char-info">
         <div class="sc-name">${esc(c.name)}</div>
         <div class="sc-meta">${elemImg}${esc(element)} &middot; ${esc(weapon)}</div>
@@ -846,7 +846,7 @@ async function openPicker(bannerId) {
       || a.c.name.localeCompare(b.c.name));
     grid.innerHTML = rows.map(({ c, state, count }) => `
         <div class="pick-card ${state.disabled ? 'disabled' : ''}" data-char="${c.id}" data-rarity="${c.rarity}" title="${state.reason || esc(c.name)}">
-          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy">
+          <img src="${esc(thumbUrl(c.card_promo, 260))}" alt="" loading="lazy"${demoAttr(c)}>
           <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
           <span class="pk-count" title="Vezes que apareceu em banners até ${banner.major}.${banner.minor}">${count}×</span>
           <div class="pk-name">${esc(c.name)}</div>

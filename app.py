@@ -70,6 +70,8 @@ def _on_request_exception(sender, exception, **extra):
 got_request_exception.connect(_on_request_exception, app)
 
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
+# Vídeo demonstrativo do personagem: roda em loop, sem som, como um gif
+ALLOWED_VIDEO_EXTS = {".mp4", ".webm", ".ogg", ".ogv", ".mov", ".m4v", ".gif"}
 
 PARAM_TYPES = {
     "region":      {"table": "regions",      "fk": "region_id",      "has_image": False, "label": "Região"},
@@ -142,6 +144,18 @@ def compose_reaction_image(elem_a_rel, elem_b_rel, size=160):
     name = uuid4().hex + ".png"
     canvas.save(os.path.join(dest_dir, name))
     return f"uploads/reactions/{name}"
+
+
+def save_video(file_storage, subdir):
+    filename = file_storage.filename or "video.mp4"
+    ext = os.path.splitext(filename)[1].lower() or ".mp4"
+    if ext not in ALLOWED_VIDEO_EXTS:
+        raise ValueError(f"Formato de vídeo não suportado: {ext}")
+    name = uuid4().hex + ext
+    dest_dir = os.path.join(UPLOAD_DIR, subdir)
+    os.makedirs(dest_dir, exist_ok=True)
+    file_storage.save(os.path.join(dest_dir, name))
+    return f"uploads/{subdir}/{name}"
 
 
 def fetch_params(conn):
@@ -374,7 +388,7 @@ def api_param_delete(ptype, item_id):
     if ptype == "role":
         name = row["name"]
         affected = conn.execute(
-            "SELECT id, name, card_promo FROM characters "
+            "SELECT id, name, card_promo, demo_video FROM characters "
             "WHERE (role1 = ? OR role2 = ?) AND archived = 0 ORDER BY name",
             (name, name),
         ).fetchall()
@@ -395,7 +409,8 @@ def api_param_delete(ptype, item_id):
         return jsonify(ok=True)
 
     affected = conn.execute(
-        f"SELECT id, name, card_promo FROM characters WHERE {meta['fk']} = ? AND archived = 0 ORDER BY name",
+        f"SELECT id, name, card_promo, demo_video FROM characters "
+        f"WHERE {meta['fk']} = ? AND archived = 0 ORDER BY name",
         (item_id,),
     ).fetchall()
     if affected and reassign_to is None:
@@ -529,8 +544,15 @@ def api_character_create():
     if conn.execute("SELECT 1 FROM characters WHERE name = ? COLLATE NOCASE", (data["name"],)).fetchone():
         conn.close()
         return jsonify(error="Já existe um personagem com esse nome."), 409
+    demo_video = request.files.get("demo_video")
     data["card_full"] = save_image(card_full, "characters")
     data["card_promo"] = save_image(card_promo, "characters")
+    if demo_video and demo_video.filename:
+        try:
+            data["demo_video"] = save_video(demo_video, "characters")
+        except ValueError as exc:
+            conn.close()
+            return jsonify(error=str(exc)), 400
     cols = ", ".join(data.keys())
     marks = ", ".join("?" for _ in data)
     cur = conn.execute(f"INSERT INTO characters ({cols}) VALUES ({marks})", list(data.values()))
@@ -568,6 +590,18 @@ def api_character_update(char_id):
         if file and file.filename:
             delete_upload(row[subkey])
             data[field] = save_image(file, "characters")
+    video = request.files.get("demo_video")
+    if video and video.filename:
+        try:
+            new_video = save_video(video, "characters")
+        except ValueError as exc:
+            conn.close()
+            return jsonify(error=str(exc)), 400
+        delete_upload(row["demo_video"])
+        data["demo_video"] = new_video
+    elif request.form.get("demo_video_clear") == "1":
+        delete_upload(row["demo_video"])
+        data["demo_video"] = None
     sets = ", ".join(f"{k} = ?" for k in data)
     conn.execute(f"UPDATE characters SET {sets} WHERE id = ?", list(data.values()) + [char_id])
     log_event(conn, "info", "personagem.editado", f"Personagem \"{data['name']}\" atualizado.")
@@ -611,6 +645,7 @@ def api_character_permanent(char_id):
         return jsonify(error="Apenas personagens no arquivo podem ser excluídos definitivamente."), 400
     delete_upload(row["card_full"])
     delete_upload(row["card_promo"])
+    delete_upload(row["demo_video"])
     conn.execute("DELETE FROM characters WHERE id = ?", (char_id,))
     log_event(conn, "warning", "personagem.excluido", f"Personagem \"{row['name']}\" excluído definitivamente.")
     conn.commit()
@@ -1032,7 +1067,7 @@ def banner_payload(conn):
     banners = []
     for b in conn.execute("SELECT * FROM banners ORDER BY major, minor, half"):
         chars = conn.execute(
-            """SELECT c.id, c.name, c.rarity, c.edition, c.card_promo
+            """SELECT c.id, c.name, c.rarity, c.edition, c.card_promo, c.demo_video
                FROM banner_characters bc JOIN characters c ON c.id = bc.character_id
                WHERE bc.banner_id = ? AND c.archived = 0
                ORDER BY c.rarity DESC, c.name COLLATE NOCASE""",
@@ -1354,7 +1389,8 @@ def team_payload(conn):
            ORDER BY te.created_at, te.id"""
     ):
         rows = conn.execute(
-            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.card_full, c.role1, c.role2,
+            """SELECT tm.slot, c.id, c.name, c.rarity, c.card_promo, c.card_full,
+                      c.demo_video, c.role1, c.role2,
                       e.name AS element_name, e.image AS element_image
                FROM team_members tm
                LEFT JOIN characters c ON c.id = tm.character_id
@@ -1372,6 +1408,7 @@ def team_payload(conn):
                 members.append({
                     "id": r["id"], "name": r["name"], "rarity": r["rarity"],
                     "card_promo": r["card_promo"], "card_full": r["card_full"],
+                    "demo_video": r["demo_video"],
                     "role1": r["role1"], "role2": r["role2"],
                     "element_name": r["element_name"],
                     "element_image": r["element_image"],
@@ -1756,7 +1793,7 @@ def api_history():
             appearances[row["character_id"]] = i
 
     chars = conn.execute(
-        "SELECT id, name, rarity, card_promo FROM characters WHERE archived = 0 "
+        "SELECT id, name, rarity, card_promo, demo_video FROM characters WHERE archived = 0 "
         "ORDER BY rarity DESC, name COLLATE NOCASE").fetchall()
     conn.close()
 
@@ -1771,7 +1808,8 @@ def api_history():
             b = timeline[last]
             last_label = f"{b['major']}.{b['minor']} ({'1ª' if b['half'] == 1 else '2ª'})"
         rows.append({"id": c["id"], "name": c["name"], "rarity": c["rarity"],
-                     "card_promo": c["card_promo"], "gap": gap, "last_banner": last_label})
+                     "card_promo": c["card_promo"], "demo_video": c["demo_video"],
+                     "gap": gap, "last_banner": last_label})
     rows.sort(key=lambda r: (-r["rarity"], -r["gap"], r["name"].lower()))
     return jsonify(options=options, rows=rows,
                    current=next(o["label"] for o in options if o["id"] == banner_id))

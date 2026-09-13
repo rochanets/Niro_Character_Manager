@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x16DE;</text></svg>">
 </head>
-<body>
+<body class="page-{{ active|default('none', true) }}">
   <div class="bg-runes" aria-hidden="true"></div>
   <div class="bg-glow" aria-hidden="true"></div>
 

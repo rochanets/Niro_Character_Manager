@@ -5,8 +5,18 @@ const charId = form.dataset.charId;
 
 const fullEl = document.getElementById('ii-card-full');
 const promoEl = document.getElementById('ii-card-promo');
+const demoEl = document.getElementById('ii-demo-video');
 const iiFull = createImageInput(fullEl, { existingUrl: fullEl.dataset.existing || null });
 const iiPromo = createImageInput(promoEl, { existingUrl: promoEl.dataset.existing || null });
+
+// vídeo demonstrativo: opcional, e o X precisa avisar o backend para apagar o que já existia
+const hadDemoVideo = !!demoEl.dataset.existing;
+let demoVideoCleared = false;
+const iiDemo = createImageInput(demoEl, {
+  video: true,
+  existingUrl: demoEl.dataset.existing || null,
+  onChange: (file) => { demoVideoCleared = hadDemoVideo && !file; },
+});
 
 // contadores de caracteres
 document.querySelectorAll('.char-count').forEach((counter) => {
@@ -204,21 +214,42 @@ form.addEventListener('submit', async (e) => {
   fd.append('rarity', data._rarity_raw);
   if (iiFull.file) fd.append('card_full', iiFull.file);
   if (iiPromo.file) fd.append('card_promo', iiPromo.file);
+  if (iiDemo.file) fd.append('demo_video', iiDemo.file);
+  else if (demoVideoCleared) fd.append('demo_video_clear', '1');
 
   const btn = document.getElementById('submit-btn');
+  const progress = document.getElementById('upload-progress');
+  const bar = progress.querySelector('.bar');
+  const label = document.getElementById('upload-label');
   btn.disabled = true;
+  progress.classList.add('active');
+  label.style.display = 'block';
+  bar.style.width = '2%';
+  label.textContent = 'Enviando…';
+
+  const onProgress = (ratio) => {
+    const pct = Math.round(ratio * 100);
+    bar.style.width = `${Math.max(2, pct)}%`;
+    label.textContent = pct >= 100 ? 'Processando no servidor…' : `Enviando arquivos… ${pct}%`;
+  };
+
   try {
     if (charId) {
-      await api(`/api/characters/${charId}`, { method: 'PUT', body: fd });
+      await apiUpload(`/api/characters/${charId}`, 'PUT', fd, onProgress);
       toast('Personagem atualizado!', 'success');
       setTimeout(() => { window.location.href = `/chars/${charId}`; }, 600);
     } else {
-      const res = await api('/api/characters', { method: 'POST', body: fd });
+      const res = await apiUpload('/api/characters', 'POST', fd, onProgress);
       toast('Personagem cadastrado!', 'success');
       setTimeout(() => { window.location.href = `/chars/${res.id}`; }, 600);
     }
+    bar.style.width = '100%';
+    label.textContent = 'Concluído!';
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
+    progress.classList.remove('active');
+    label.style.display = 'none';
+    bar.style.width = '0%';
   }
 });

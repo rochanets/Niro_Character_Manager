@@ -33,6 +33,16 @@
   --sidebar-w: 232px;
   --sidebar-w-collapsed: 68px;
 
+  /* menu de módulos: fundo opaco o bastante para nunca sumir sobre a arte */
+  --nav-bg-top: rgba(20, 20, 38, 0.94);
+  --nav-bg-bottom: rgba(9, 9, 19, 0.96);
+  --nav-border: rgba(255, 255, 255, 0.16);
+  --nav-ink: #d3d6ec;
+
+  /* aba Chars: os cards sao brancos, entao o menu fica totalmente opaco */
+  --nav-bg-top-solid: #0b0b15;
+  --nav-bg-bottom-solid: #030307;
+
   --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -85,6 +95,12 @@ body {
   padding: 22px 10px;
   z-index: 40;
   transition: width 0.22s ease, padding 0.22s ease, box-shadow 0.22s ease;
+  /* sobrescreve o .glass: o menu precisa de contraste proprio, nao translucidez */
+  background: linear-gradient(180deg, var(--nav-bg-top), var(--nav-bg-bottom));
+  backdrop-filter: blur(24px) saturate(1.25);
+  -webkit-backdrop-filter: blur(24px) saturate(1.25);
+  border: 1px solid var(--nav-border);
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.6);
 }
 .sidebar.is-expanded {
   width: var(--sidebar-w);
@@ -117,6 +133,15 @@ body {
   transition: transform 0.22s ease;
 }
 .sidebar.is-expanded .sidebar-toggle span { transform: rotate(180deg); }
+/* Chars: cards brancos atras do menu — fundo 100% opaco, sem translucidez */
+.page-chars .sidebar {
+  background: linear-gradient(180deg, var(--nav-bg-top-solid), var(--nav-bg-bottom-solid));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 14px 50px rgba(0, 0, 0, 0.75);
+}
+
 .sidebar-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 4px; }
 .sidebar:not(.is-expanded) .sidebar-brand { justify-content: center; gap: 0; padding: 0 0 4px; }
 .brand-rune {
@@ -163,19 +188,19 @@ body {
 .nav-item {
   display: flex; align-items: center; gap: 12px;
   padding: 11px 14px; border-radius: var(--radius-sm);
-  color: var(--ink-2); text-decoration: none; font-size: 14.5px; font-weight: 500;
+  color: var(--nav-ink); text-decoration: none; font-size: 14.5px; font-weight: 500;
   border: 1px solid transparent;
   white-space: nowrap; overflow: hidden;
   transition: all 0.2s ease;
 }
 .sidebar:not(.is-expanded) .nav-item { justify-content: center; padding: 11px 8px; gap: 0; }
-.nav-item svg { width: 19px; height: 19px; fill: currentColor; opacity: 0.85; flex-shrink: 0; }
-.nav-item:hover { background: var(--glass); color: var(--ink-1); }
+.nav-item svg { width: 19px; height: 19px; fill: currentColor; opacity: 1; flex-shrink: 0; }
+.nav-item:hover { background: rgba(255, 255, 255, 0.1); color: var(--ink-1); }
 .nav-item.active {
-  background: linear-gradient(90deg, rgba(90, 215, 232, 0.13), rgba(167, 139, 250, 0.10));
-  border-color: rgba(90, 215, 232, 0.25);
-  color: var(--accent);
-  box-shadow: 0 0 18px rgba(90, 215, 232, 0.12) inset;
+  background: linear-gradient(90deg, rgba(90, 215, 232, 0.24), rgba(167, 139, 250, 0.18));
+  border-color: rgba(90, 215, 232, 0.45);
+  color: #8ce8f5;
+  box-shadow: 0 0 18px rgba(90, 215, 232, 0.18) inset;
 }
 .sidebar-footer { text-align: center; font-size: 11px; color: var(--ink-3); letter-spacing: 1px; }
 
@@ -286,6 +311,35 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 }
 .image-input.has-image .ii-clear { display: inline-flex; }
 .image-input.has-image .ii-placeholder { display: none; }
+
+/* --------- slot de vídeo demonstrativo --------- */
+.image-input video.ii-preview-video {
+  max-width: 100%; max-height: 260px; border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+.image-input.video-input { border-color: rgba(167, 139, 250, 0.35); }
+.image-input.video-input:hover, .image-input.video-input:focus { border-color: rgba(167, 139, 250, 0.6); }
+.ii-note { font-size: 11.5px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
+
+/* três slots de mídia lado a lado: card promo, vídeo e card completo */
+.form-grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+/* --------- prévia em vídeo ao clicar e segurar no card --------- */
+[data-demo] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+.demo-hold-video {
+  position: fixed; z-index: 900; object-fit: cover; pointer-events: none;
+  opacity: 0; transform: scale(0.98);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.65), 0 0 26px rgba(167, 139, 250, 0.35);
+  outline: 1px solid rgba(167, 139, 250, 0.5);
+  background: #000;
+}
+.demo-hold-video.on { opacity: 1; transform: scale(1); }
 
 /* --------- botão IA (estrela 4 pontas) --------- */
 .ai-btn {
@@ -1099,12 +1153,34 @@ select option.opt-star4 { color: var(--star4); }
 
 /* --------- responsivo --------- */
 @media (max-width: 760px) {
-  .sidebar, .sidebar.is-expanded { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; height: 64px; flex-direction: row; align-items: center; padding: 6px 10px; border-radius: 16px 16px 0 0; box-shadow: none; }
+  .sidebar, .sidebar.is-expanded {
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; height: auto;
+    flex-direction: row; align-items: center;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-radius: 16px 16px 0 0;
+    /* barra inferior: base escura opaca para os rotulos nao sumirem sobre a arte */
+    background: linear-gradient(180deg, rgba(16, 16, 32, 0.96), rgba(7, 7, 15, 0.985));
+    border: none; border-top: 1px solid var(--nav-border);
+    box-shadow: 0 -10px 34px rgba(0, 0, 0, 0.7);
+  }
   .sidebar-toggle { display: none; }
   .sidebar-brand, .rune-divider, .sidebar-footer { display: none; }
-  .sidebar-nav { flex-direction: row; justify-content: space-around; width: 100%; }
-  .nav-item, .sidebar:not(.is-expanded) .nav-item { flex-direction: column; gap: 3px; font-size: 10px; padding: 6px 10px; justify-content: center; }
-  .nav-label, .sidebar:not(.is-expanded) .nav-label { opacity: 1; white-space: normal; max-width: none; }
+  .sidebar-nav {
+    flex-direction: row; justify-content: flex-start; width: 100%;
+    gap: 2px; overflow-x: auto; scrollbar-width: none;
+  }
+  .sidebar-nav::-webkit-scrollbar { display: none; }
+  .nav-item, .sidebar:not(.is-expanded) .nav-item {
+    flex: 1 0 auto; justify-content: center;
+    flex-direction: column; gap: 3px; font-size: 10.5px; padding: 7px 9px;
+  }
+  .nav-label, .sidebar:not(.is-expanded) .nav-label { opacity: 1; white-space: nowrap; max-width: none; }
+  .nav-item.active { background: rgba(90, 215, 232, 0.22); }
+  .page-chars .sidebar {
+    background: linear-gradient(180deg, var(--nav-bg-top-solid), var(--nav-bg-bottom-solid));
+    border-top-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.7);
+  }
   .content { margin-left: 0; padding: 18px 14px 90px; }
   .char-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .group-container { padding: 12px; }

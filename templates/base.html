@@ -19,7 +19,7 @@
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-180.png') }}">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
 </head>
-<body>
+<body class="page-{{ active|default('none', true) }}">
   <div class="bg-runes" aria-hidden="true"></div>
   <div class="bg-glow" aria-hidden="true"></div>
 

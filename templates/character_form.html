@@ -12,14 +12,19 @@
 <form id="char-form" data-char-id="{{ character.id if character else '' }}">
   <div class="form-section glass">
     <h3>Cards</h3>
-    <div class="form-grid">
-      <div class="field">
-        <label class="field-label">Card Completo *</label>
-        <div id="ii-card-full" data-existing="{{ '/static/' ~ character.card_full if character else '' }}"></div>
-      </div>
+    <div class="form-grid form-grid-3">
       <div class="field">
         <label class="field-label">Card Promo *</label>
         <div id="ii-card-promo" data-existing="{{ '/static/' ~ character.card_promo if character else '' }}"></div>
+      </div>
+      <div class="field">
+        <label class="field-label">Vídeo Demonstrativo</label>
+        <div id="ii-demo-video" data-existing="{{ ('/static/' ~ character.demo_video) if character and character.demo_video else '' }}"></div>
+        <div class="ii-note">Roda em loop, sem som — como um gif. É ele que aparece ao clicar e segurar no card.</div>
+      </div>
+      <div class="field">
+        <label class="field-label">Card Completo *</label>
+        <div id="ii-card-full" data-existing="{{ '/static/' ~ character.card_full if character else '' }}"></div>
       </div>
     </div>
   </div>
@@ -152,6 +157,9 @@
     </div>
     {% endfor %}
   </div>
+
+  <div class="ai-progress" id="upload-progress"><div class="bar"></div></div>
+  <div id="upload-label" class="ii-note" style="display:none;text-align:right"></div>
 
   <div style="display:flex; gap:12px; justify-content:flex-end">
     <a href="{{ '/chars/' ~ character.id if character else '/chars' }}" class="btn">Cancelar</a>

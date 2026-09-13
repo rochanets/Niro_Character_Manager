@@ -52,7 +52,7 @@ function renderGroup(rows, rarity, maxGap, step) {
     ${rows.map((r) => `
       <div class="bar-row r${r.rarity}" data-id="${r.id}">
         <span class="br-label">
-          <img src="${esc(thumbUrl(r.card_promo, 64))}" alt="">
+          <img src="${esc(thumbUrl(r.card_promo, 64))}" alt=""${demoAttr(r)}>
           ${esc(r.name)}
         </span>
         <span class="br-track" style="background-image:${gridImage}">

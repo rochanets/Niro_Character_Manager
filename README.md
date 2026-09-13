@@ -23,7 +23,7 @@ python app.py
 
 | Módulo | Descrição |
 |---|---|
-| **Chars** | Galeria de personagens (card promo), com agrupamento em containers por Região, Afiliação, Elemento, Arma e Raridade (combináveis) e ordenação alfabética. |
+| **Chars** | Galeria de personagens (card promo), com agrupamento em containers por Região, Afiliação, Elemento, Arma e Raridade (combináveis) e ordenação alfabética. **Clicar e segurar** num card (ou toque longo no celular) toca o vídeo demonstrativo do personagem em loop, como um gif — vale em todos os módulos. |
 | **Times** | Times de 4 personagens com nome. Slots podem usar "?" (bloco preto com interrogação) para posições desconhecidas. O bloco do nome tem um gradiente que mistura as cores dos elementos dos membros (o "?" é ignorado), com botão para alternar o formato do gradiente. Um personagem só pode estar em um time por vez. |
 | **Banners** | Grade de banners por versão (colunas 1.x–8.x com nome) e subversão (linhas x.0–x.8). Tipos: Unitário (1×5⭐ + 3×4⭐), Duplo (2×5⭐ + 3×4⭐) e Especial (até 10×5⭐ + 5×4⭐). Personagens são adicionados via modal com filtros. |
 | **Histórico** | Escolha o banner atual e veja, em gráfico de barras horizontais, há quantos banners cada personagem não aparece (5⭐ e depois 4⭐). |
@@ -39,3 +39,4 @@ Nos campos *Ataque Normal, Skill 1, Skill 2, Ultimate, Personalidade* e *Lore* d
 - Banco: `niro.db` (SQLite, criado automaticamente).
 - Imagens: `static/uploads/` (mantidas na resolução original).
 - Todos os campos de imagem aceitam **upload, Ctrl+V e arrastar-e-soltar**.
+- O cadastro tem três slots de mídia: **Card Promo**, **Vídeo Demonstrativo** (opcional — MP4, WEBM, MOV ou GIF, tocado em loop e sem som) e **Card Completo**.

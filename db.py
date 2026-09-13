@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS characters (
     role2          TEXT,
     card_full      TEXT,
     card_promo     TEXT,
+    demo_video     TEXT,
     archived       INTEGER NOT NULL DEFAULT 0,
     archived_at    TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
@@ -115,7 +116,7 @@ def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
     existing = {row[1] for row in conn.execute("PRAGMA table_info(characters)")}
-    for col in ("role1", "role2"):
+    for col in ("role1", "role2", "demo_video"):
         if col not in existing:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {col} TEXT")
     if not conn.execute("SELECT 1 FROM roles LIMIT 1").fetchone():
@@ -129,12 +130,12 @@ def purge_expired_archive():
     cutoff = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, card_full, card_promo FROM characters "
+        "SELECT id, card_full, card_promo, demo_video FROM characters "
         "WHERE archived = 1 AND archived_at IS NOT NULL AND archived_at < ?",
         (cutoff,),
     ).fetchall()
     for row in rows:
-        for rel in (row["card_full"], row["card_promo"]):
+        for rel in (row["card_full"], row["card_promo"], row["demo_video"]):
             delete_upload(rel)
         conn.execute("DELETE FROM characters WHERE id = ?", (row["id"],))
     conn.commit()

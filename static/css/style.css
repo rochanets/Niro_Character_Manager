@@ -246,6 +246,35 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
 .image-input.has-image .ii-clear { display: inline-flex; }
 .image-input.has-image .ii-placeholder { display: none; }
 
+/* --------- slot de vídeo demonstrativo --------- */
+.image-input video.ii-preview-video {
+  max-width: 100%; max-height: 260px; border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+.image-input.video-input { border-color: rgba(167, 139, 250, 0.35); }
+.image-input.video-input:hover, .image-input.video-input:focus { border-color: rgba(167, 139, 250, 0.6); }
+.ii-note { font-size: 11.5px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
+
+/* três slots de mídia lado a lado: card promo, vídeo e card completo */
+.form-grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+/* --------- prévia em vídeo ao clicar e segurar no card --------- */
+[data-demo] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+.demo-hold-video {
+  position: fixed; z-index: 900; object-fit: cover; pointer-events: none;
+  opacity: 0; transform: scale(0.98);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.65), 0 0 26px rgba(167, 139, 250, 0.35);
+  outline: 1px solid rgba(167, 139, 250, 0.5);
+  background: #000;
+}
+.demo-hold-video.on { opacity: 1; transform: scale(1); }
+
 /* --------- botão IA (estrela 4 pontas) --------- */
 .ai-btn {
   width: 26px; height: 26px; border-radius: 8px; border: 1px solid rgba(90, 179, 255, 0.35);

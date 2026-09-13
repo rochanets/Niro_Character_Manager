@@ -114,7 +114,7 @@ function memberHtml(team, m) {
   return `
     <div class="team-member">
       <div class="tm-card r${m.rarity}">
-        <img src="/static/${esc(m.card_promo)}" alt="${esc(m.name)}" loading="lazy">
+        <img src="/static/${esc(m.card_promo)}" alt="${esc(m.name)}" loading="lazy"${demoAttr(m)}>
         <button class="tm-remove" data-team="${team.id}" data-char="${m.id}" title="Remover do time">&#x2715;</button>
       </div>
       <div class="tm-name" title="${esc(m.name)}">${esc(m.name)}</div>
@@ -235,7 +235,7 @@ document.getElementById('new-team-btn').addEventListener('click', () => {
       const c = byId.get(v);
       return `
         <div class="team-slot" data-slot="${i}" title="Clique para esvaziar">
-          <img src="/static/${esc(c.card_promo)}" alt="${esc(c.name)}">
+          <img src="/static/${esc(c.card_promo)}" alt="${esc(c.name)}"${demoAttr(c)}>
           <div class="ts-name">${esc(c.name)}</div>
         </div>`;
     }).join('');
@@ -263,7 +263,7 @@ document.getElementById('new-team-btn').addEventListener('click', () => {
       </div>`;
     const charCards = chars.map((c) => `
       <div class="pick-card" data-char="${c.id}" title="${esc(c.name)}">
-        <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy">
+        <img src="/static/${esc(c.card_promo)}" alt="" loading="lazy"${demoAttr(c)}>
         <span class="pk-star stars-${c.rarity}">${c.rarity}★</span>
         <div class="pk-name">${esc(c.name)}</div>
       </div>`).join('');

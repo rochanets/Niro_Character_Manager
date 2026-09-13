@@ -146,7 +146,7 @@ function openReassign(id, item, characters) {
     <div class="pick-grid" style="margin-bottom:16px">
       ${characters.map((c) => `
         <div class="pick-card">
-          <img src="/static/${esc(c.card_promo)}" alt="">
+          <img src="/static/${esc(c.card_promo)}" alt=""${demoAttr(c)}>
           <div class="pk-name">${esc(c.name)}</div>
         </div>`).join('')}
     </div>

@@ -346,99 +346,72 @@ async function elementColor(element) {
   const rgb = await imageColor(`/static/${element.image}`);
   return rgb ? vividColor(rgb) : null;
 }
-// ---------------------------------------------------------------- clique-e-segure: card vira vídeo
-// Qualquer elemento com data-demo="<url do vídeo>" toca o vídeo demonstrativo
-// em loop (mudo, como um gif) enquanto o dedo/mouse fica pressionado.
-const HOLD_MS = 350;          // tempo de pressão até virar vídeo
-const HOLD_MOVE_TOLERANCE = 12;  // px de movimento que cancelam a pressão
 
-let _hold = null;
-let _swallowClick = false;
+// ---------------------------------------------------------------- alternar imagem/vídeo no card
+// Card de personagem com vídeo cadastrado ganha um ícone de câmera no canto
+// inferior direito da imagem. Clicando, o card vira vídeo (mudo, em loop) e o
+// ícone vira o de imagem; clicando de novo, volta à imagem estática.
+// O estado não é persistido: sair da página devolve todos ao padrão estático.
+const ICON_DEMO_VIDEO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+  stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2"></rect>
+  <path d="M15 11l6-4v10l-6-4z"></path></svg>`;
+const ICON_DEMO_IMAGE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+  stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect>
+  <circle cx="8.5" cy="9.5" r="1.6"></circle><path d="M21 16l-5-5-5 5-2-2-5 5"></path></svg>`;
 
-// Atributo pronto para usar nos templates de card dos módulos
-function demoAttr(c) {
+// Envolve a mídia do card: `<div class="demo-media">` com a imagem e o botão.
+function demoToggleHtml(c) {
   const src = c && c.demo_video;
-  return src ? ` data-demo="/static/${esc(src)}"` : '';
+  if (!src) return '';
+  return `<button type="button" class="demo-toggle" data-demo="/static/${esc(src)}"
+    title="Ver vídeo" aria-label="Ver vídeo">${ICON_DEMO_VIDEO}</button>`;
 }
 
-function _holdTargetRect(host) {
-  const media = host.matches('img, video') ? host : host.querySelector('img, video');
-  return (media || host).getBoundingClientRect();
+function _stopDemoVideo(btn) {
+  const media = btn.closest('.demo-media');
+  const playing = media && media.querySelector('.demo-video');
+  if (playing) playing.remove();
+  btn.classList.remove('playing');
+  btn.innerHTML = ICON_DEMO_VIDEO;
+  btn.title = 'Ver vídeo';
+  btn.setAttribute('aria-label', 'Ver vídeo');
 }
 
-function _showHoldVideo() {
-  if (!_hold || _hold.shown) return;
-  const { host } = _hold;
-  const rect = _holdTargetRect(host);
-  if (!rect.width || !rect.height) return;
-
-  // gif não toca em <video>: nesse caso a prévia é a própria imagem animada
-  const isGif = /\.gif(\?.*)?$/i.test(host.dataset.demo);
-  const video = document.createElement(isGif ? 'img' : 'video');
-  video.className = 'demo-hold-video';
-  video.src = host.dataset.demo;
+function _startDemoVideo(btn) {
+  const media = btn.closest('.demo-media');
+  if (!media) return;
+  const src = btn.dataset.demo;
+  // gif não toca em <video>: nesse caso o card animado é a própria imagem
+  const isGif = /\.gif(\?.*)?$/i.test(src);
+  const el = document.createElement(isGif ? 'img' : 'video');
+  el.className = 'demo-video';
   if (!isGif) {
-    video.muted = true;
-    video.loop = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.setAttribute('playsinline', '');
+    el.muted = true;
+    el.loop = true;
+    el.autoplay = true;
+    el.playsInline = true;
+    el.setAttribute('playsinline', '');
   }
-  video.style.left = `${rect.left}px`;
-  video.style.top = `${rect.top}px`;
-  video.style.width = `${rect.width}px`;
-  video.style.height = `${rect.height}px`;
-  const media = host.matches('img, video') ? host : host.querySelector('img, video');
-  video.style.borderRadius = getComputedStyle(media || host).borderRadius;
-  video.addEventListener('error', () => video.remove());
-  document.body.appendChild(video);
-  if (!isGif) video.play().catch(() => { /* sem autoplay: mostra o primeiro frame */ });
-  requestAnimationFrame(() => video.classList.add('on'));
-
-  _hold.shown = true;
-  _hold.video = video;
+  el.addEventListener('error', () => {
+    _stopDemoVideo(btn);
+    toast('Não foi possível carregar o vídeo.', 'error');
+  });
+  el.src = src;
+  media.appendChild(el);
+  if (!isGif) el.play().catch(() => { /* sem autoplay: fica no primeiro frame */ });
+  requestAnimationFrame(() => el.classList.add('on'));
+  btn.classList.add('playing');
+  btn.innerHTML = ICON_DEMO_IMAGE;
+  btn.title = 'Voltar para a imagem';
+  btn.setAttribute('aria-label', 'Voltar para a imagem');
 }
 
-function _endHold() {
-  if (!_hold) return;
-  clearTimeout(_hold.timer);
-  if (_hold.video) _hold.video.remove();
-  if (_hold.shown) {
-    // evita que o "segurar" no card vire navegação ao soltar
-    _swallowClick = true;
-    setTimeout(() => { _swallowClick = false; }, 700);
-  }
-  _hold = null;
-}
-
-document.addEventListener('pointerdown', (e) => {
-  if (e.button) return;
-  const host = e.target.closest && e.target.closest('[data-demo]');
-  if (!host || !host.dataset.demo) return;
-  _endHold();
-  _hold = { host, x: e.clientX, y: e.clientY, shown: false, video: null, timer: null };
-  _hold.timer = setTimeout(_showHoldVideo, HOLD_MS);
-});
-
-document.addEventListener('pointermove', (e) => {
-  if (!_hold) return;
-  if (Math.abs(e.clientX - _hold.x) > HOLD_MOVE_TOLERANCE ||
-      Math.abs(e.clientY - _hold.y) > HOLD_MOVE_TOLERANCE) _endHold();
-});
-
-['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
-  document.addEventListener(ev, _endHold));
-window.addEventListener('scroll', _endHold, true);
-window.addEventListener('blur', _endHold);
-
-// o menu nativo do toque longo atrapalharia a prévia
-document.addEventListener('contextmenu', (e) => {
-  if (_hold) e.preventDefault();
-});
-
+// O card é um link: o clique no ícone não pode navegar.
 document.addEventListener('click', (e) => {
-  if (!_swallowClick) return;
-  _swallowClick = false;
+  const btn = e.target.closest && e.target.closest('.demo-toggle');
+  if (!btn) return;
   e.preventDefault();
   e.stopPropagation();
+  if (btn.classList.contains('playing')) _stopDemoVideo(btn);
+  else _startDemoVideo(btn);
 }, true);

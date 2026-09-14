@@ -87,7 +87,10 @@ function cardHtml(c) {
     : '';
   return `
     <a class="char-card" href="/chars/${c.id}">
-      <img class="promo" src="${esc(thumbUrl(c.card_promo, 480))}" alt="${esc(c.name)}" loading="lazy"${demoAttr(c)}>
+      <div class="cc-media demo-media">
+        <img class="promo" src="${esc(thumbUrl(c.card_promo, 480))}" alt="${esc(c.name)}" loading="lazy">
+        ${demoToggleHtml(c)}
+      </div>
       ${elem}
       <div class="cc-info">
         <span class="cc-name">${esc(c.name)}</span>

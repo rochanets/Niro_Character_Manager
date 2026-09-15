@@ -23,9 +23,10 @@ Depois de commitar em uma branch, verifique se já existe PR aberta para ela. Se
 houver, abra imediatamente, sem perguntar. Branch commitada sem PR fica invisível no
 meu fluxo de revisão.
 
-⚠️ **Atenção neste repo:** a branch padrão do remoto **não é `main`** — hoje é
-`claude/niro-character-system-nqtxoo`. Confirme a branch padrão antes de abrir a PR em
-vez de assumir `main`.
+⚠️ **Toda PR vai contra a `main`.** É o padrão do repo, mesmo que o GitHub mostre outra
+branch como padrão do remoto (hoje o HEAD do remoto ainda aponta para
+`claude/niro-character-system-nqtxoo`, mas a `main` é a branch de verdade). Se em algum
+caso a PR tiver que ir para outra branch, eu aviso antes — sem aviso, é `main`.
 
 ## Stack
 

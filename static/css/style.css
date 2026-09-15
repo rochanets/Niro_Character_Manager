@@ -1364,3 +1364,14 @@ body.ss-lock { overflow: hidden; }
 @keyframes ss-som-pisca { 50% { box-shadow: 0 0 14px rgba(224, 180, 92, 0.5); } }
 
 @media (max-width: 760px) { .ss-vol { width: 70px; } }
+
+/* ajustes do módulo Trilhas */
+#settings-box { margin-bottom: 22px; }
+.settings-grid { display: grid; gap: 16px; margin-top: 14px; }
+.set-item { display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.set-label { font-size: 13.5px; font-weight: 600; color: var(--ink-1); }
+.set-control { display: flex; align-items: center; gap: 12px; }
+.set-control input[type="range"] { width: 240px; max-width: 60%; accent-color: var(--accent); }
+.set-control input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.set-control output { font-size: 13px; font-weight: 600; color: var(--accent); min-width: 42px; }
+.set-hint { font-size: 12.5px; color: var(--ink-3); }

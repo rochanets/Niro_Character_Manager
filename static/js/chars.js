@@ -80,6 +80,8 @@ async function load() {
   [allChars, allParams] = await Promise.all([api('/api/characters'), api('/api/params')]);
   // A trilha é opcional: se a rota falhar, o slideshow segue mudo em vez de quebrar.
   allTracks = await api('/api/tracks').catch(() => []);
+  ssAudioCarregarPrefs();
+  await ssCarregarAjustes();
   populateFilterSelects();
   render();
   maybeAutoSlideshow();
@@ -380,20 +382,31 @@ function openSlideshowModal() {
 //                                   └─> MediaStreamDestination (gravação)
 const SS_AUDIO_KEY = 'niro:chars:ss-audio';
 const SS_FADE_AUDIO = 1.2;   // crossfade entre faixas, em segundos
-const SS_DUCK = 0.35;        // volume da trilha enquanto o vídeo toca
 
 const ssAudio = {
-  ctx: null, master: null, duck: null, dest: null,
+  ctx: null, master: null, duck: null, dest: null, videoGain: null,
   slots: [], atual: -1,
   modo: 'auto', fixa: null, grupo: null,
   volume: 0.7, mudo: false,
+  // vêm do módulo Trilhas (ficam no banco, então valem também no celular)
+  duckNivel: 0.15, somVideo: true,
 };
+
+// Ajustes do módulo Trilhas. Falha silenciosa: sem eles o slideshow usa os padrões.
+async function ssCarregarAjustes() {
+  try {
+    const cfg = await api('/api/tracks/settings');
+    ssAudio.duckNivel = cfg.duck;
+    ssAudio.somVideo = !!cfg.video_sound;
+    if (!ssAudio.volumeLocal) ssAudio.volume = cfg.volume;
+  } catch (_) { /* mantém os padrões */ }
+}
 
 function ssAudioCarregarPrefs() {
   try {
     const salvo = JSON.parse(localStorage.getItem(SS_AUDIO_KEY));
     if (salvo) {
-      if (typeof salvo.volume === 'number') ssAudio.volume = salvo.volume;
+      if (typeof salvo.volume === 'number') { ssAudio.volume = salvo.volume; ssAudio.volumeLocal = true; }
       if (typeof salvo.mudo === 'boolean') ssAudio.mudo = salvo.mudo;
       if (salvo.modo) ssAudio.modo = salvo.modo;
     }
@@ -408,7 +421,9 @@ function ssAudioSalvarPrefs() {
 }
 
 function ssAudioIniciar() {
-  if (ssAudio.ctx || ssAudio.modo === 'none') return;
+  // O contexto é criado mesmo sem trilha: é por ele que o som dos vídeos entra
+  // na gravação do download.
+  if (ssAudio.ctx) return;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return;
   ssAudio.ctx = new Ctx();
@@ -420,6 +435,13 @@ function ssAudioIniciar() {
   ssAudio.master.connect(ssAudio.ctx.destination);
   ssAudio.dest = ssAudio.ctx.createMediaStreamDestination();
   ssAudio.master.connect(ssAudio.dest);
+
+  // O som próprio dos vídeos não passa pelo volume nem pelo ducking da trilha:
+  // quem recua é a música, o vídeo continua no nível dele.
+  ssAudio.videoGain = ssAudio.ctx.createGain();
+  ssAudio.videoGain.gain.value = 1;
+  ssAudio.videoGain.connect(ssAudio.ctx.destination);
+  ssAudio.videoGain.connect(ssAudio.dest);
 
   // dois slots alternados: enquanto um sobe, o outro desce (crossfade)
   ssAudio.slots = [0, 1].map(() => {
@@ -439,6 +461,16 @@ function ssAudioIniciar() {
   ssAudioResumir();
 }
 
+// Liga o áudio de um <video> ao grafo, para ele sair nos alto-falantes e também
+// na gravação. Um elemento só pode ser ligado uma vez.
+function ssConectarVideo(el) {
+  if (!ssAudio.ctx || !el || el.tagName !== 'VIDEO' || el.dataset.ligado) return;
+  try {
+    ssAudio.ctx.createMediaElementSource(el).connect(ssAudio.videoGain);
+    el.dataset.ligado = '1';
+  } catch (_) { /* já estava ligado */ }
+}
+
 function ssAudioResumir() {
   if (ssAudio.ctx && ssAudio.ctx.state === 'suspended') {
     ssAudio.ctx.resume().catch(() => { /* precisa de um toque do usuário */ });
@@ -454,7 +486,7 @@ function ssSorteio(lista) {
 // O grupo evita trocar de música a cada personagem: só troca quando muda o
 // elemento (ou a região) do bloco que está passando.
 function ssFaixaPara(c) {
-  if (!allTracks.length) return null;
+  if (!allTracks.length || ssAudio.modo === 'none') return null;
   if (ssAudio.modo === 'fixa') {
     return ssAudio.fixa ? { grupo: `f:${ssAudio.fixa.id}`, faixa: ssAudio.fixa } : null;
   }
@@ -508,7 +540,7 @@ function ssAudioDuck(abaixar) {
   const g = ssAudio.duck.gain;
   g.cancelScheduledValues(agora);
   g.setValueAtTime(g.value, agora);
-  g.linearRampToValueAtTime(abaixar ? SS_DUCK : 1, agora + 0.4);
+  g.linearRampToValueAtTime(abaixar ? ssAudio.duckNivel : 1, agora + 0.4);
 }
 
 function ssAudioVolume() {
@@ -583,8 +615,9 @@ function ssMediaFor(i) {
     el.src = src;
   } else {
     el = document.createElement('video');
-    el.muted = true;
-    el.defaultMuted = true;
+    // O vídeo do personagem tem som próprio; quem recua é a trilha.
+    el.muted = !ssAudio.somVideo;
+    el.defaultMuted = el.muted;
     el.loop = false;
     el.playsInline = true;
     el.setAttribute('playsinline', '');
@@ -594,6 +627,7 @@ function ssMediaFor(i) {
     el.load();
   }
   ss.pool.appendChild(el);
+  ssConectarVideo(el);
   ss.videos.set(i, el);
   return el;
 }
@@ -790,7 +824,14 @@ function ssStartMedia() {
   ss.phaseStart = ssNow();
   if (el.tagName === 'VIDEO') {
     try { el.currentTime = 0; } catch (_) { /* ainda sem metadata */ }
-    el.play().then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
+    el.muted = !ssAudio.somVideo;
+    el.play().then(() => { ss.mediaStarted = 1; }).catch(() => {
+      // alguns navegadores recusam tocar com som sem gesto do usuário:
+      // em vez de pular o vídeo, toca mudo.
+      if (el.muted) return;
+      el.muted = true;
+      el.play().then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
+    });
   } else {
     ss.mediaStarted = 1;
   }
@@ -925,13 +966,14 @@ function ssStart(list, f, order) {
 
   // iOS só libera o play de vídeo dentro de um gesto: destrava aqui, no clique
   // que abriu o slideshow, os elementos já criados.
+  ssAudioIniciar();
   ssGoTo(0);
   ss.videos.forEach((el) => {
     if (el.tagName !== 'VIDEO') return;
+    el.muted = true;                       // o aquecimento é silencioso
     const p = el.play();
     if (p && p.then) p.then(() => el.pause()).catch(() => { /* destrava no play seguinte */ });
   });
-  ssAudioIniciar();
   ssAudioAcompanhar(ss.list[0]);
   ss.raf = requestAnimationFrame(ssFrame);
 }

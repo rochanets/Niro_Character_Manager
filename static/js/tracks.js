@@ -11,7 +11,59 @@ const SCOPE_LABEL = { element: 'Elemento', region: 'Região', geral: 'Geral' };
 async function load() {
   [tracks, params] = await Promise.all([api('/api/tracks'), api('/api/params')]);
   render();
+  await carregarAjustes();
 }
+
+// ---------------------------------------------------------------- ajustes
+// Ficam no banco (e não no navegador) para valerem também no celular.
+let ajustes = { duck: 0.15, video_sound: 1, volume: 0.7 };
+
+function pintarAjustes() {
+  document.getElementById('set-video-sound').checked = !!ajustes.video_sound;
+  const duck = Math.round(ajustes.duck * 100);
+  const vol = Math.round(ajustes.volume * 100);
+  document.getElementById('set-duck').value = duck;
+  document.getElementById('set-duck-val').textContent = `${duck}%`;
+  document.getElementById('set-volume').value = vol;
+  document.getElementById('set-volume-val').textContent = `${vol}%`;
+}
+
+async function carregarAjustes() {
+  try {
+    ajustes = await api('/api/tracks/settings');
+    pintarAjustes();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function salvarAjustes(mudanca) {
+  try {
+    ajustes = await api('/api/tracks/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mudanca),
+    });
+    pintarAjustes();
+    toast('Ajuste salvo.', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+document.getElementById('set-video-sound').addEventListener('change', function () {
+  salvarAjustes({ video_sound: this.checked ? 1 : 0 });
+});
+['duck', 'volume'].forEach((campo) => {
+  const slider = document.getElementById(`set-${campo}`);
+  slider.addEventListener('input', function () {
+    document.getElementById(`set-${campo}-val`).textContent = `${this.value}%`;
+  });
+  // só grava quando solta o controle, para não disparar um PUT por pixel
+  slider.addEventListener('change', function () {
+    salvarAjustes({ [campo]: this.value / 100 });
+  });
+});
 
 function refOptions(scope, current) {
   if (scope === 'geral') return '';

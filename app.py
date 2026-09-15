@@ -345,6 +345,57 @@ def page_tracks():
 
 # ---------------------------------------------------------------- trilha sonora
 
+TRACK_SETTINGS_DEFAULTS = {
+    "duck": 0.15,        # volume da trilha enquanto o vídeo do personagem toca
+    "video_sound": 1,    # os vídeos tocam com o som próprio deles
+    "volume": 0.7,       # volume inicial da trilha
+}
+
+
+def read_track_settings(conn):
+    valores = dict(TRACK_SETTINGS_DEFAULTS)
+    for row in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'track.%'"):
+        chave = row["key"].split(".", 1)[1]
+        if chave not in valores:
+            continue
+        try:
+            valores[chave] = int(row["value"]) if chave == "video_sound" else float(row["value"])
+        except (TypeError, ValueError):
+            pass
+    return valores
+
+
+@app.route("/api/tracks/settings")
+def api_track_settings():
+    conn = get_db()
+    valores = read_track_settings(conn)
+    conn.close()
+    return jsonify(valores)
+
+
+@app.route("/api/tracks/settings", methods=["PUT"])
+def api_track_settings_save():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    for chave, padrao in TRACK_SETTINGS_DEFAULTS.items():
+        if chave not in data:
+            continue
+        if chave == "video_sound":
+            valor = 1 if data[chave] else 0
+        else:
+            try:
+                valor = min(1.0, max(0.0, float(data[chave])))
+            except (TypeError, ValueError):
+                continue
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                     (f"track.{chave}", str(valor)))
+    conn.commit()
+    valores = read_track_settings(conn)
+    conn.close()
+    return jsonify(valores)
+
+
 @app.route("/api/tracks")
 def api_tracks():
     conn = get_db()

@@ -80,6 +80,10 @@ CREATE TABLE IF NOT EXISTS tracks (
     archived_at TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
 CREATE TABLE IF NOT EXISTS versions (
     major INTEGER PRIMARY KEY,
     name  TEXT NOT NULL

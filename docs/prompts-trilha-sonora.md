@@ -3,8 +3,8 @@
 Prompts prontos para gerar a trilha do slideshow do módulo Chars no MusicGen
 (Colab) ou em geradores como Suno/Udio.
 
-- **3 faixas para cada um dos 12 elementos** (36 faixas) e **3 faixas por região**,
-  sendo pelo menos uma de cada região com coro em latim.
+- **3 faixas para cada um dos 12 elementos** (36 faixas) e **3 para cada uma das 6
+  regiões** (18 faixas), sendo a terceira de cada região com coro em latim.
 - Cada elemento tem as três faixas cobrindo facetas diferentes do que ele
   representa — nunca três variações da mesma ideia.
 - Os prompts estão **em inglês de propósito**: todos esses modelos foram treinados
@@ -285,214 +285,217 @@ creeping dread ambient instrumental, sub bass drone, scraping metallic textures,
 
 ---
 
-# REGIÕES (arquétipos — renomeie para as suas)
+# REGIÕES
 
-> Estes seis são moldes. Troque o nome e ajuste uma ou duas palavras do prompt
-> (o bioma, o instrumento característico) para que ele descreva a sua região.
+## Aurion — Brasil · elemento Mineral
 
-## Arquétipo 1 — Cidadela / Capital do império
+*A solidez do Mineral com a percussão brasileira: berimbau, surdo, atabaque e agogô sobre metais graves.*
 
-**1. Tema oficial**
+**1. Terra firme**
 ```
-noble orchestral instrumental, heroic french horns, full string section, timpani and cymbal swells, proud and ceremonial, royal capital, 100 BPM, no vocals
-```
-
-**2. Vida na cidade**
-```
-warm medieval city instrumental, lute and hurdy gurdy, tambourine, fiddle melody, bustling and welcoming, market square, 115 BPM, no vocals
+earthy brazilian orchestral instrumental, berimbau and deep surdo drums, low strings and tuba, unshakable and grounded, ancient stone land, 90 BPM, no vocals
 ```
 
-**3. 🕯️ Hino da cidadela — COM LATIM**
+**2. Forja**
+```
+heavy percussive instrumental, atabaque and agogo bells, metallic hammer hits, driving low brass, industrious and relentless, 110 BPM, no vocals
+```
+
+**3. 🕯️ Hino da pedra — COM LATIM**
 
 *MusicGen (textura coral):*
 ```
-epic sacred orchestral instrumental, full latin style choir singing wordless vowels, cathedral reverb, brass chorale and pipe organ, solemn and monumental, 80 BPM
+sacred earth instrumental, latin style choir on sustained vowels, deep surdo pulse, low brass chorale, cavernous stone reverb, monumental and solemn, 75 BPM
 ```
 
 *Suno/Udio — Style:*
 ```
-epic sacred choral, orchestral, cathedral reverb, male and female choir, brass chorale, solemn, cinematic
+epic sacred choral, brazilian percussion, deep surdo drums, low brass, cavernous reverb, monumental, slow
 ```
 
 *Suno/Udio — Lyrics:*
 ```
-Regnum stat, nomen manet
-Sub sole aeterno canimus
-Fortes sumus, fortes erimus
-Gloria, gloria civitati
+Petra vivit, terra canit
+Radices in profundo tenent
+Non movebimur, non cademus
+Aurum sub monte dormit
 ```
-> *O reino permanece, o nome perdura / Sob o sol eterno cantamos / Somos fortes,
-> seremos fortes / Glória, glória à cidade*
+> *A pedra vive, a terra canta / As raízes seguram nas profundezas / Não seremos movidos, não cairemos / O ouro dorme sob a montanha*
 
-## Arquétipo 2 — Terras Geladas / Norte
+## Calthera — Uruguai · elemento Aqua
 
-**1. Desolação**
-```
-cold ambient orchestral instrumental, sustained high strings, low drone, sparse piano notes, icy and desolate, frozen wasteland, 60 BPM, no percussion, no vocals
-```
+*A fluidez e o mistério do Aqua sobre o candombe uruguaio: tamboril e bandoneón à beira d'água.*
 
-**2. Marcha no gelo**
+**1. Correnteza**
 ```
-somber marching instrumental, low male wordless chant, heavy drums, bowed cellos, cold and relentless, warriors crossing the ice, 95 BPM
+coastal candombe instrumental, tamboril drums, bandoneon melody, legato strings, flowing and warm, river meeting the sea, 100 BPM, no vocals
 ```
 
-**3. 🕯️ Lamento do norte — COM LATIM**
+**2. Pressão**
+```
+dark maritime instrumental, low bandoneon, submerged string pads, distant tamboril pulse, deep reverb, mysterious and heavy, 70 BPM, no vocals
+```
+
+**3. 🕯️ Canto da maré — COM LATIM**
 
 *MusicGen (textura coral):*
 ```
-mournful sacred instrumental, distant latin style choir on sustained vowels, solo cello, deep drone, frozen cathedral atmosphere, grieving and vast, 65 BPM
+melancholic sacred maritime instrumental, latin style choir on long vowels, bandoneon and solo cello, deep water reverb, mournful and vast, 68 BPM
 ```
 
 *Suno/Udio — Style:*
 ```
-mournful choral, dark orchestral, solo cello, deep male choir, vast reverb, funeral procession, slow
+mournful choral, bandoneon, candombe percussion, cello, deep water reverb, melancholic, slow
 ```
 
 *Suno/Udio — Lyrics:*
 ```
-Nix cadit, silentium regnat
-Dormiunt sub glacie
-Memento nominum
-Requiescant in pace alba
+Flumen magnum ad mare currit
+Aqua meminit, aqua tacet
+Sub unda dormit veritas
+Veni, audi, descende
 ```
-> *A neve cai, o silêncio reina / Eles dormem sob o gelo / Lembra-te dos nomes /
-> Descansem na paz branca*
+> *O grande rio corre para o mar / A água lembra, a água cala / Sob a onda dorme a verdade / Vem, ouve, desce*
 
-## Arquétipo 3 — Floresta Antiga
+## Andina — Argentina · elemento Psy
 
-**1. Sob as copas**
-```
-mystical forest ambient instrumental, wooden flute, soft nylon guitar, nature textures, gentle strings, ancient and alive, 75 BPM, no vocals
-```
+*O tango como música de meditação: bandoneón lento, texturas suspensas e o mistério do Psy.*
 
-**2. Ritual**
+**1. Introspecção**
 ```
-tribal ritual instrumental, frame drums and shakers, low wooden flute, layered wordless chanting, primal and hypnotic, 105 BPM
+meditative tango ambient instrumental, slow bandoneon over sustained pads, sparse piano, hypnotic and introspective, 65 BPM, no percussion, no vocals
 ```
 
-**3. 🕯️ Oração das raízes — COM LATIM**
+**2. Premonição**
+```
+mystic instrumental, detuned bandoneon, reversed textures, whispering wordless voices, dissonant string swells, uncanny and dreamlike, 80 BPM
+```
+
+**3. 🕯️ Transe — COM LATIM**
 
 *MusicGen (textura coral):*
 ```
-sacred nature instrumental, soft latin style female choir on open vowels, harp and low strings, forest reverb, reverent and ancient, 70 BPM
+trance like sacred instrumental, latin style choir humming on open vowels, deep drone and singing bowls, distant bandoneon, vast inner space, 60 BPM
 ```
 
 *Suno/Udio — Style:*
 ```
-sacred female choir, ethereal folk orchestral, harp, forest ambience, reverent, slow and warm
+meditative choral, ambient tango, bandoneon, singing bowls, drone, trance like, very slow
 ```
 
 *Suno/Udio — Lyrics:*
 ```
-Radices tenent terram
-Arbores vident omnia
-Silva meminit, silva tacet
-Dormi, dormi in viridi
+Mens aperta, mundus latet
+Quod videmus non est totum
+Somnus docet, silentium clamat
+Intra, intra, interius
 ```
-> *As raízes seguram a terra / As árvores veem tudo / A floresta lembra, a
-> floresta cala / Dorme, dorme no verde*
+> *Mente aberta, o mundo se esconde / O que vemos não é tudo / O sono ensina, o silêncio grita / Entra, entra, mais para dentro*
 
-## Arquétipo 4 — Deserto / Terras Áridas
+## Velcrya — Chile · elemento Glacial
 
-**1. Horizonte**
-```
-arid desert instrumental, duduk and oud, sparse frame drum, shimmering heat pads, lonely and endless, sun scorched dunes, 80 BPM, no vocals
-```
+*Os extremos do Glacial com o sopro andino: quena e zampoña agudíssimas sobre graves subsônicos.*
 
-**2. Caravana**
+**1. Extremos**
 ```
-exotic rhythmic instrumental, darbuka and riq percussion, oud melody, low strings drone, traveling and determined, 120 BPM, no vocals
+glacial andean instrumental, very high pan flute over very low contrabass drone, glassy bells, cold and vast, frozen southern peaks, 60 BPM, no vocals
 ```
 
-**3. 🕯️ Cidade enterrada — COM LATIM**
+**2. Peso**
+```
+heavy glacial instrumental, deep booming drums, low brass, piercing high string swells, charango tremolo, dangerous and slow, 72 BPM, no vocals
+```
+
+**3. 🕯️ Beleza no perigo — COM LATIM**
 
 *MusicGen (textura coral):*
 ```
-ancient ruins instrumental, distant latin style choir on long vowels, low drone, sparse metallic percussion, haunting and forgotten, buried civilization, 70 BPM
+frozen sacred instrumental, distant latin style choir on sustained vowels, solo quena flute, subsonic drone, ice cathedral reverb, beautiful and lethal, 62 BPM
 ```
 
 *Suno/Udio — Style:*
 ```
-haunting ancient choral, desert orchestral, drone, distant echoing choir, mysterious ruins, slow
+frozen choral, andean flute, subsonic drone, vast icy reverb, beautiful and dangerous, very slow
 ```
 
 *Suno/Udio — Lyrics:*
 ```
-Harena omnia tegit
-Ubi sunt qui ante nos fuerunt
-Vox in deserto clamat
-Nihil manet, nihil manet
+Glacies canit, ventus tacet
+Pulchritudo in periculo
+Alta et profunda, una vox
+Gelu tenet, gelu servat
 ```
-> *A areia cobre tudo / Onde estão os que vieram antes de nós / Uma voz clama no
-> deserto / Nada permanece, nada permanece*
+> *O gelo canta, o vento cala / A beleza dentro do perigo / Agudo e grave, uma só voz / O gelo prende, o gelo guarda*
 
-## Arquétipo 5 — Costa / Cidade Portuária
+## Manoa — Venezuela · elemento Electro
 
-**1. Maré**
-```
-coastal folk instrumental, acoustic guitar and accordion, soft fiddle, gentle wave textures, salty and welcoming, harbor at sunset, 95 BPM, no vocals
-```
+*O joropo venezuelano é rápido e virtuoso por natureza: arpa llanera e cuatro eletrificados pelo Electro.*
 
-**2. Partida**
+**1. Joropo elétrico**
 ```
-adventurous sea instrumental, sweeping strings, bold brass, rolling snare, hopeful and expansive, ship leaving port, 125 BPM, no vocals
+fast joropo hybrid instrumental, virtuosic llanera harp arpeggios, cuatro strumming, maracas, synth bass pulse, electric and exhilarating, 140 BPM, no vocals
 ```
 
-**3. 🕯️ Canto dos afogados — COM LATIM**
+**2. Tempestade**
+```
+high energy hybrid instrumental, harp and cuatro over distorted synth, punchy drums, brass stabs, lightning storm over the plains, 150 BPM, no vocals
+```
+
+**3. 🕯️ Cidade dourada — COM LATIM**
 
 *MusicGen (textura coral):*
 ```
-melancholic maritime instrumental, low male latin style choir on sustained vowels, creaking ship textures, solo violin, deep water reverb, mournful, 70 BPM
+charged sacred instrumental, latin style choir chanting on short syllables, llanera harp ostinato, electrical drone, deep drums, golden city ritual, 95 BPM
 ```
 
 *Suno/Udio — Style:*
 ```
-sea shanty choral, low male choir, melancholic orchestral, violin, deep reverb, slow and heavy
+ritual choral, latin american harp, electric drone, deep drums, charged and ceremonial, driving
 ```
 
 *Suno/Udio — Lyrics:*
 ```
-Omnia flumina ad mare currunt
-Mare non reddit quod accepit
-Audi nos, mater undarum
-Salve, salve, ultima ripa
+Fulgur in manibus
+Civitas aurea non dormit
+Vide, audi, curre
+Tempestas venit, tempestas sumus
 ```
-> *Todos os rios correm para o mar / O mar não devolve o que recebeu / Ouve-nos,
-> mãe das ondas / Salve, salve, última margem*
+> *Relâmpago nas mãos / A cidade dourada não dorme / Vê, ouve, corre / A tempestade vem, a tempestade somos nós*
 
-## Arquétipo 6 — Terras Sombrias / Ruínas
+## Valessia — Peru · elemento Fae
 
-**1. Ameaça**
-```
-dark ominous instrumental, low brass drones, dissonant string clusters, sparse deep drums, oppressive and dreadful, cursed land, 60 BPM, no vocals
-```
+*A alegria e o descobrimento do Fae na festa andina: quena, charango e cajón.*
 
-**2. Perseguição**
+**1. Festa**
 ```
-dark orchestral action instrumental, aggressive low strings ostinato, pounding taiko, brass hits, urgent and threatening, 140 BPM, no vocals
+joyful andean instrumental, quena flute and charango, cajon and light percussion, bright and celebratory, mountain festival, 120 BPM, no vocals
 ```
 
-**3. 🕯️ Rito proibido — COM LATIM**
+**2. Descobrimento**
+```
+wonder and discovery instrumental, pan flutes over shimmering bells, harp arpeggios, warm strings swelling, magic revealed in the highlands, 90 BPM, no vocals
+```
+
+**3. 🕯️ Cantoria — COM LATIM**
 
 *MusicGen (textura coral):*
 ```
-sinister sacred instrumental, dark latin style male choir chanting on low vowels, pipe organ, deep drums, church ruins reverb, ominous and ritualistic, 75 BPM
+festive sacred instrumental, latin style choir on bright open vowels, quena and charango, hand drums and bells, joyful and communal, 115 BPM
 ```
 
 *Suno/Udio — Style:*
 ```
-dark sacred choral, gregorian style male chant, pipe organ, deep drums, sinister cinematic, ritual
+festive choral, andean folk, quena flute, charango, hand drums, joyful and communal, bright
 ```
 
 *Suno/Udio — Lyrics:*
 ```
-In tenebris vocamus
-Quod dormit non est mortuum
-Sanguis et ferrum, sanguis et umbra
-Venit hora, venit finis
+Ride, canta, veni nobiscum
+Lumen inter folia
+Nihil timemus hodie
+Festum sine fine
 ```
-> *Nas trevas nós chamamos / O que dorme não está morto / Sangue e ferro, sangue
-> e sombra / Vem a hora, vem o fim*
+> *Ri, canta, vem conosco / Luz entre as folhas / Nada tememos hoje / Festa sem fim*
 
 ---
 
@@ -642,24 +645,24 @@ o bioma/instrumento no texto quando fizer sentido.
 
 ```python
 TEMAS = {
-    "cidadela_1": "noble orchestral instrumental, heroic french horns, full string section, timpani and cymbal swells, proud and ceremonial, royal capital, 100 BPM, no vocals",
-    "cidadela_2": "warm medieval city instrumental, lute and hurdy gurdy, tambourine, fiddle melody, bustling and welcoming, market square, 115 BPM, no vocals",
-    "cidadela_3": "epic sacred orchestral instrumental, full latin style choir singing wordless vowels, cathedral reverb, brass chorale and pipe organ, solemn and monumental, 80 BPM",
-    "gelo_1":     "cold ambient orchestral instrumental, sustained high strings, low drone, sparse piano notes, icy and desolate, frozen wasteland, 60 BPM, no percussion, no vocals",
-    "gelo_2":     "somber marching instrumental, low male wordless chant, heavy drums, bowed cellos, cold and relentless, warriors crossing the ice, 95 BPM",
-    "gelo_3":     "mournful sacred instrumental, distant latin style choir on sustained vowels, solo cello, deep drone, frozen cathedral atmosphere, grieving and vast, 65 BPM",
-    "floresta_1": "mystical forest ambient instrumental, wooden flute, soft nylon guitar, nature textures, gentle strings, ancient and alive, 75 BPM, no vocals",
-    "floresta_2": "tribal ritual instrumental, frame drums and shakers, low wooden flute, layered wordless chanting, primal and hypnotic, 105 BPM",
-    "floresta_3": "sacred nature instrumental, soft latin style female choir on open vowels, harp and low strings, forest reverb, reverent and ancient, 70 BPM",
-    "deserto_1":  "arid desert instrumental, duduk and oud, sparse frame drum, shimmering heat pads, lonely and endless, sun scorched dunes, 80 BPM, no vocals",
-    "deserto_2":  "exotic rhythmic instrumental, darbuka and riq percussion, oud melody, low strings drone, traveling and determined, 120 BPM, no vocals",
-    "deserto_3":  "ancient ruins instrumental, distant latin style choir on long vowels, low drone, sparse metallic percussion, haunting and forgotten, buried civilization, 70 BPM",
-    "costa_1":    "coastal folk instrumental, acoustic guitar and accordion, soft fiddle, gentle wave textures, salty and welcoming, harbor at sunset, 95 BPM, no vocals",
-    "costa_2":    "adventurous sea instrumental, sweeping strings, bold brass, rolling snare, hopeful and expansive, ship leaving port, 125 BPM, no vocals",
-    "costa_3":    "melancholic maritime instrumental, low male latin style choir on sustained vowels, creaking ship textures, solo violin, deep water reverb, mournful, 70 BPM",
-    "sombrias_1": "dark ominous instrumental, low brass drones, dissonant string clusters, sparse deep drums, oppressive and dreadful, cursed land, 60 BPM, no vocals",
-    "sombrias_2": "dark orchestral action instrumental, aggressive low strings ostinato, pounding taiko, brass hits, urgent and threatening, 140 BPM, no vocals",
-    "sombrias_3": "sinister sacred instrumental, dark latin style male choir chanting on low vowels, pipe organ, deep drums, church ruins reverb, ominous and ritualistic, 75 BPM",
+    "aurion_1":   "earthy brazilian orchestral instrumental, berimbau and deep surdo drums, low strings and tuba, unshakable and grounded, ancient stone land, 90 BPM, no vocals",
+    "aurion_2":   "heavy percussive instrumental, atabaque and agogo bells, metallic hammer hits, driving low brass, industrious and relentless, 110 BPM, no vocals",
+    "aurion_3":   "sacred earth instrumental, latin style choir on sustained vowels, deep surdo pulse, low brass chorale, cavernous stone reverb, monumental and solemn, 75 BPM",
+    "calthera_1": "coastal candombe instrumental, tamboril drums, bandoneon melody, legato strings, flowing and warm, river meeting the sea, 100 BPM, no vocals",
+    "calthera_2": "dark maritime instrumental, low bandoneon, submerged string pads, distant tamboril pulse, deep reverb, mysterious and heavy, 70 BPM, no vocals",
+    "calthera_3": "melancholic sacred maritime instrumental, latin style choir on long vowels, bandoneon and solo cello, deep water reverb, mournful and vast, 68 BPM",
+    "andina_1":   "meditative tango ambient instrumental, slow bandoneon over sustained pads, sparse piano, hypnotic and introspective, 65 BPM, no percussion, no vocals",
+    "andina_2":   "mystic instrumental, detuned bandoneon, reversed textures, whispering wordless voices, dissonant string swells, uncanny and dreamlike, 80 BPM",
+    "andina_3":   "trance like sacred instrumental, latin style choir humming on open vowels, deep drone and singing bowls, distant bandoneon, vast inner space, 60 BPM",
+    "velcrya_1":  "glacial andean instrumental, very high pan flute over very low contrabass drone, glassy bells, cold and vast, frozen southern peaks, 60 BPM, no vocals",
+    "velcrya_2":  "heavy glacial instrumental, deep booming drums, low brass, piercing high string swells, charango tremolo, dangerous and slow, 72 BPM, no vocals",
+    "velcrya_3":  "frozen sacred instrumental, distant latin style choir on sustained vowels, solo quena flute, subsonic drone, ice cathedral reverb, beautiful and lethal, 62 BPM",
+    "manoa_1":    "fast joropo hybrid instrumental, virtuosic llanera harp arpeggios, cuatro strumming, maracas, synth bass pulse, electric and exhilarating, 140 BPM, no vocals",
+    "manoa_2":    "high energy hybrid instrumental, harp and cuatro over distorted synth, punchy drums, brass stabs, lightning storm over the plains, 150 BPM, no vocals",
+    "manoa_3":    "charged sacred instrumental, latin style choir chanting on short syllables, llanera harp ostinato, electrical drone, deep drums, golden city ritual, 95 BPM",
+    "valessia_1": "joyful andean instrumental, quena flute and charango, cajon and light percussion, bright and celebratory, mountain festival, 120 BPM, no vocals",
+    "valessia_2": "wonder and discovery instrumental, pan flutes over shimmering bells, harp arpeggios, warm strings swelling, magic revealed in the highlands, 90 BPM, no vocals",
+    "valessia_3": "festive sacred instrumental, latin style choir on bright open vowels, quena and charango, hand drums and bells, joyful and communal, 115 BPM",
 }
 
 import os, numpy as np, scipy.io.wavfile

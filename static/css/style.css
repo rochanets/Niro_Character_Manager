@@ -1217,3 +1217,87 @@ select option.opt-star4 { color: var(--star4); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.13); border-radius: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================
+   Slideshow do módulo Chars (botão ✦show)
+   ============================================================ */
+
+/* botão ✦show, ao lado do "+ char" */
+.btn.ai-show {
+  border-color: rgba(90, 179, 255, 0.4);
+  background: radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.22), rgba(167, 139, 250, 0.14));
+  gap: 6px;
+}
+.btn.ai-show:hover { box-shadow: 0 0 22px rgba(96, 165, 250, 0.35); }
+.btn.ai-show .ai-star { width: 16px; height: 16px; filter: drop-shadow(0 0 5px rgba(125, 190, 255, 0.9)); }
+
+/* modal de filtros do slideshow */
+.ss-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.ss-order-row { margin-top: 14px; }
+.ss-order-row .field-label { display: block; margin-bottom: 6px; }
+.ss-count { margin-top: 12px; color: var(--accent); font-size: 13px; font-weight: 600; }
+.ss-cast-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* palco */
+body.ss-lock { overflow: hidden; }
+.ss-overlay {
+  /* acima do menu (40) e abaixo dos modais (100): os diálogos de download e
+     projeção são abertos de dentro do próprio slideshow. */
+  position: fixed; inset: 0; z-index: 90;
+  background: #04040a;
+  display: flex; flex-direction: column;
+  animation: fade-in 0.2s ease;
+}
+.ss-stage {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 10px; cursor: pointer;
+}
+.ss-canvas {
+  max-width: 100%; max-height: 100%; width: auto; height: auto;
+  border-radius: 12px; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.7);
+  background: #05050c;
+}
+.ss-pool { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.ss-pool video, .ss-pool img { width: 1px; height: 1px; }
+
+.ss-bar {
+  padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(10, 10, 22, 0.2), rgba(6, 6, 14, 0.95));
+  border-top: 1px solid var(--glass-border-soft);
+}
+.ss-track { height: 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.ss-track span {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.25s linear;
+}
+.ss-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.ss-meta { color: var(--ink-2); font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-buttons { display: flex; align-items: center; gap: 8px; }
+.ss-sep { width: 1px; height: 20px; background: var(--glass-border); }
+.ss-btn {
+  width: 40px; height: 40px; border-radius: 10px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-1); background: var(--glass-strong);
+  border: 1px solid var(--glass-border); cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ss-btn svg { width: 20px; height: 20px; }
+.ss-btn:hover { background: rgba(255, 255, 255, 0.16); border-color: rgba(90, 215, 232, 0.45); }
+.ss-btn.danger { color: #f3b0b0; border-color: rgba(230, 103, 103, 0.45); }
+
+.ss-rec { margin-top: 10px; }
+.ss-rec .ai-progress .bar { transition: width 0.25s linear; }
+.ss-rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.ss-rec-label { color: var(--danger); font-size: 12.5px; font-weight: 600; }
+
+/* tela cheia "de mentira" do iPhone: some com os controles */
+.ss-overlay.ss-pseudo-fs .ss-bar { display: none; }
+.ss-overlay.ss-pseudo-fs .ss-stage { padding: 0; }
+.ss-overlay.ss-pseudo-fs .ss-canvas { border-radius: 0; }
+
+@media (max-width: 760px) {
+  .ss-row { justify-content: center; }
+  .ss-meta { width: 100%; text-align: center; }
+  .ss-btn { width: 44px; height: 44px; }
+}

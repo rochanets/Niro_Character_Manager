@@ -338,11 +338,6 @@ def page_archive():
     return render_template("archive.html", active="archive")
 
 
-@app.route("/trilhas")
-def page_tracks():
-    return render_template("tracks.html", active="tracks")
-
-
 # ---------------------------------------------------------------- trilha sonora
 
 TRACK_SETTINGS_DEFAULTS = {

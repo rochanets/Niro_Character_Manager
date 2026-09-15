@@ -505,6 +505,17 @@ short epic orchestral fanfare, rising strings and brass swell, timpani roll, cym
 
 ---
 
+# Notebook pronto (atalho)
+
+Em vez de montar as células na mão, use o arquivo **`docs/niro-trilha-sonora.ipynb`**
+deste repositório: no Colab, menu **Arquivo → Fazer upload de notebook**, escolha
+esse arquivo e tudo já está lá, na ordem certa.
+
+Depois de subir: **Ambiente de execução → Alterar o tipo de ambiente de execução →
+T4 GPU**, e vá rodando as células de cima para baixo.
+
+As células abaixo são as mesmas do notebook, caso você prefira colar uma a uma.
+
 # Células do Colab
 
 Rode na ordem. A primeira só precisa ser rodada uma vez por sessão (se o Colab

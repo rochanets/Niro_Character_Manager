@@ -360,7 +360,93 @@ short epic orchestral fanfare, rising strings and brass swell, timpani roll, cym
 
 ---
 
-# Célula pronta para o Colab
+# Células do Colab
+
+Rode na ordem. A primeira só precisa ser rodada uma vez por sessão (se o Colab
+desconectar, rode de novo antes das outras).
+
+### 1. Conferir a GPU
+
+```python
+!nvidia-smi
+```
+
+Tem que aparecer "Tesla T4". Se não aparecer, vá em **Ambiente de execução →
+Alterar o tipo de ambiente de execução → T4 GPU**.
+
+### 2. Carregar o modelo (2-3 min na primeira vez)
+
+```python
+from transformers import pipeline
+import torch
+
+gerador = pipeline(
+    "text-to-audio",
+    model="facebook/musicgen-small",
+    device=0 if torch.cuda.is_available() else -1,
+)
+print("Modelo carregado.")
+```
+
+### 3. Gerar uma faixa de teste
+
+```python
+import numpy as np
+import scipy.io.wavfile
+from IPython.display import Audio
+
+prompt = "ethereal fantasy instrumental, celesta and harp, breathy choir, whimsical, 85 BPM, no vocals"
+
+saida = gerador(prompt, forward_params={"do_sample": True, "max_new_tokens": 1500})
+
+audio = np.squeeze(saida["audio"])
+if audio.ndim > 1:
+    audio = audio.T
+
+scipy.io.wavfile.write("teste.wav", rate=saida["sampling_rate"], data=audio)
+Audio("teste.wav")
+```
+
+### 4. Gerar tudo em lote (cole o dicionário `TEMAS` de baixo)
+
+```python
+import os, numpy as np, scipy.io.wavfile
+
+TEMAS = {
+    # cole aqui um dos dicionários da seção seguinte
+}
+
+os.makedirs("trilhas", exist_ok=True)
+
+for nome, p in TEMAS.items():
+    print("Gerando:", nome)
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
+    audio = np.squeeze(saida["audio"])
+    if audio.ndim > 1:
+        audio = audio.T
+    scipy.io.wavfile.write(f"trilhas/{nome}.wav", rate=saida["sampling_rate"], data=audio)
+    os.system(
+        f"ffmpeg -y -loglevel error -i trilhas/{nome}.wav "
+        f"-af loudnorm=I=-16:TP=-1.5:LRA=11 -b:a 160k trilhas/{nome}.mp3"
+    )
+    os.remove(f"trilhas/{nome}.wav")
+
+print("Pronto.")
+```
+
+### 5. Baixar tudo
+
+```python
+!zip -qr trilhas.zip trilhas
+from google.colab import files
+files.download("trilhas.zip")
+```
+
+> **Erros comuns.** `IndexError: too many indices` significa que o áudio veio em
+> 1 dimensão — é o que o `np.squeeze` das células acima já resolve. O aviso
+> amarelo sobre `generation_config` é inofensivo, pode ignorar.
+
+# Dicionários de prompts para a célula 4
 
 Cole no lugar do dicionário `TEMAS` da célula em lote. Rode primeiro só os
 elementos; depois troque pelo bloco das regiões.

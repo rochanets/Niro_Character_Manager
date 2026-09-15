@@ -3,8 +3,10 @@
 Prompts prontos para gerar a trilha do slideshow do módulo Chars no MusicGen
 (Colab) ou em geradores como Suno/Udio.
 
-- **3 faixas por elemento** e **3 faixas por região**, sendo pelo menos uma de cada
-  região com coro em latim.
+- **3 faixas para cada um dos 12 elementos** (36 faixas) e **3 faixas por região**,
+  sendo pelo menos uma de cada região com coro em latim.
+- Cada elemento tem as três faixas cobrindo facetas diferentes do que ele
+  representa — nunca três variações da mesma ideia.
 - Os prompts estão **em inglês de propósito**: todos esses modelos foram treinados
   com descrições em inglês e respondem muito melhor assim. O que você lê em
   português aqui é só a explicação.
@@ -52,89 +54,232 @@ antes de colocar no vídeo.
 
 # ELEMENTOS
 
-## Fae — rosa bebê, encantado, feérico
+## Aero — vento
 
-**1. Contemplativo**
-```
-ethereal fantasy instrumental, celesta and harp arpeggios, soft breathy female choir pads, light sustained strings, whimsical and gentle, magical forest at dawn, 85 BPM, no drums, loopable
-```
+*Calmo ou turbulento. Assovios e flautas são a assinatura do elemento.*
 
-**2. Lúdico**
+**1. Calmo**
 ```
-playful fairy tale instrumental, pizzicato strings, glockenspiel and music box, light woodwinds, curious and mischievous, storybook magic, 110 BPM, soft percussion, no vocals
+gentle wind instrumental, solo wooden flute and soft human whistling, airy sustained pads, distant wind chimes, calm and open, breeze over empty plains, 90 BPM, minimal percussion, no vocals
 ```
 
-**3. Melancólico**
+**2. Voo**
 ```
-bittersweet fantasy instrumental, solo harp over warm string pad, distant wordless soprano, nostalgic and fragile, faded enchantment, 70 BPM, sparse, no drums
-```
-
-## Electro — roxo escuro, tenso, elétrico
-
-**1. Tensão crescente**
-```
-epic hybrid orchestral instrumental, staccato low strings, synth pulses and arpeggiated bass, rising tension, storm gathering, 120 BPM, building percussion, no vocals
+soaring adventure instrumental, pan flute lead over sweeping strings, bright horns, weightless and free, flight above the clouds, 110 BPM, light cymbal swells, no vocals
 ```
 
-**2. Impacto**
+**3. Turbulento**
 ```
-aggressive hybrid trailer instrumental, distorted synth bass, brass stabs, industrial percussion hits, electric and violent, 140 BPM, no vocals
-```
-
-**3. Latente**
-```
-dark ambient electronic instrumental, humming electrical drone, slow detuned synth pad, occasional crackle, restrained menace, 60 BPM, minimal, no vocals
+turbulent orchestral instrumental, rapid piccolo and flute runs, whistling wind textures, urgent string ostinato, swirling and violent gale, 145 BPM, driving percussion, no vocals
 ```
 
-## Psy — roxo claro, onírico, mental
+## Aqua — água
 
-**1. Onírico**
-```
-dreamlike ambient instrumental, shimmering bells, reversed pads, soft granular texture, floating and hypnotic, altered consciousness, 95 BPM, no drums, no vocals
-```
+*Fluidez e leveza, mas também mistério e pressão. Trompas, trompetes e cordas.*
 
-**2. Inquietante**
+**1. Fluidez**
 ```
-unsettling psychological instrumental, detuned celesta, whispering wordless voices, dissonant string swells, uncanny and disorienting, 80 BPM, no clear beat
+flowing orchestral instrumental, legato strings and harp arpeggios, soft muted trumpet melody, gentle marimba, fluid and weightless, clear running river, 100 BPM, no vocals
 ```
 
-**3. Transcendente**
+**2. Mistério**
 ```
-cosmic meditative instrumental, warm analog pads, slow evolving drone, distant wordless choir, vast and serene, mind expanding, 65 BPM, no percussion
-```
-
-## Aqua — azul marinho, profundo, oceânico
-
-**1. Abissal**
-```
-dark cinematic instrumental, deep cellos and double bass, submerged pads, distant taiko drums, melancholic and vast, sunken depths, 70 BPM, no vocals
+mysterious underwater instrumental, distant french horns, submerged string pads, sparse piano drops, deep reverb, unknown depths, 75 BPM, no drums, no vocals
 ```
 
-**2. Correnteza**
+**3. Pressão**
 ```
-flowing orchestral instrumental, rolling harp and strings, soft marimba, gentle woodwinds, fluid and continuous motion, river current, 100 BPM, light percussion, no vocals
-```
-
-**3. Tempestade no mar**
-```
-stormy epic orchestral instrumental, surging strings, low brass swells, crashing percussion, powerful and turbulent, ocean tempest, 130 BPM, no vocals
+crushing deep sea instrumental, heavy low brass swells, dense cello section, slow taiko pulse, immense pressure, dark and vast, 65 BPM, no vocals
 ```
 
-## Aero — ciano claro, leve, aéreo
+## Bio — natureza e vida
 
-**1. Voo**
-```
-light adventurous orchestral instrumental, flutes and pizzicato strings, bright horns, airy and soaring, wind over open plains, 110 BPM, no vocals
-```
+*Mistério bom, runas antigas, magia de conexão com a natureza. Cello com instrumentos indígenas.*
 
-**2. Brisa**
+**1. Runas antigas**
 ```
-gentle pastoral instrumental, solo flute over warm strings, soft acoustic guitar, calm and open, morning breeze, 90 BPM, minimal percussion, no vocals
+ancient nature instrumental, solo cello over native wooden flute, frame drum and seed rattles, warm and living, old runes in a deep forest, 80 BPM, no vocals
 ```
 
-**3. Vendaval**
+**2. Crescimento**
 ```
-fast orchestral chase instrumental, rapid string ostinato, urgent woodwinds, driving light percussion, swirling and unpredictable, gale winds, 145 BPM, no vocals
+mystical growth instrumental, layered cellos, ocarina and pan pipes, earthy hand percussion, soft wordless humming, benevolent mystery, 95 BPM
+```
+
+**3. Ritual**
+```
+ritual of life instrumental, tribal drums and shakers, cello ostinato, bone flute, layered chanting texture, primal and sacred, 110 BPM
+```
+
+## Electro — eletricidade
+
+*Velocidade e picos de energia. Guitarra e bateria entram, mas não dominam as três faixas.*
+
+**1. Carga orquestral**
+```
+electric hybrid orchestral instrumental, staccato strings with synth arpeggio, crackling energy textures, brass stabs, fast and charged, 130 BPM, no vocals
+```
+
+**2. Descarga**
+```
+high energy rock hybrid instrumental, distorted electric guitar riff, driving live drums, synth bass pulse, adrenaline surge, 150 BPM, no vocals
+```
+
+**3. Estática**
+```
+static charge ambient instrumental, humming electrical drone, glitchy percussive clicks, slow detuned synth pad, restrained tension before the strike, 70 BPM, no vocals
+```
+
+## Fae — fadas e magia
+
+*Alegria, descobrimento, confraternização.*
+
+**1. Alegria**
+```
+joyful fairy instrumental, celesta and glockenspiel, pizzicato strings, light flute, bright and playful, storybook magic, 115 BPM, tambourine, no vocals
+```
+
+**2. Descobrimento**
+```
+wonder and discovery instrumental, harp arpeggios, shimmering bells, warm strings swelling in awe, magic revealed, 90 BPM, no vocals
+```
+
+**3. Confraternização**
+```
+festive fairy dance instrumental, fiddle and tin whistle, hand claps and bodhran, accordion, communal celebration, 130 BPM, no vocals
+```
+
+## Flama — fogo
+
+*Energia, alegria e protagonismo: o senso do herói e, ao mesmo tempo, o perigo do vilão.*
+
+**1. Herói**
+```
+heroic orchestral instrumental, triumphant french horns and trumpets, soaring strings, timpani and cymbals, brave and blazing, 120 BPM, no vocals
+```
+
+**2. Perigo**
+```
+dangerous fire instrumental, low brass growls, aggressive string ostinato, crackling ember percussion, menacing and unpredictable, 135 BPM, no vocals
+```
+
+**3. Calor**
+```
+warm fireside instrumental, acoustic guitar and fiddle, hand percussion, bright horns, joyful and energetic, 110 BPM, no vocals
+```
+
+## Glacial — gelo
+
+*Frieza e peso, com agudos extremos contra graves extremos. Perigo e a beleza dentro dele.*
+
+**1. Extremos**
+```
+extreme range instrumental, very high sustained violin harmonics over very low contrabass drone, glassy bells, cold and vast, frozen beauty, 60 BPM, no vocals
+```
+
+**2. Peso**
+```
+heavy glacial instrumental, deep booming drums, low brass, piercing high string swells, crushing ice, dangerous and slow, 70 BPM, no vocals
+```
+
+**3. Cristalino**
+```
+crystalline ambient instrumental, high celesta and glass harmonica, subsonic drone, sparse piano, beautiful and lethal stillness, 55 BPM, no percussion, no vocals
+```
+
+## Kinetic — energia física
+
+*Energia humana: vontade de conseguir, resiliência, determinação.*
+
+**1. Determinação**
+```
+determined orchestral instrumental, driving string ostinato, steady taiko and snare, rising brass, relentless forward motion, 125 BPM, no vocals
+```
+
+**2. Esforço**
+```
+athletic percussive instrumental, body percussion and stomping drums, punchy brass hits, building raw energy, human effort, 140 BPM, no vocals
+```
+
+**3. Resiliência**
+```
+resilient emotional instrumental, solo piano over swelling strings, slow building drums, struggle turning into resolve, 100 BPM, no vocals
+```
+
+## Lumen — o sagrado
+
+*Conexão com o divino. Harpa como instrumento central.*
+
+**1. Serenidade**
+```
+sacred instrumental, solo harp and warm string pad, wordless female choir, cathedral reverb, serene and divine, 70 BPM, no drums
+```
+
+**2. Glória**
+```
+radiant sacred instrumental, full choir on open vowels, pipe organ and brass chorale, ringing bells, glorious and uplifting, 85 BPM
+```
+
+**3. Devoção**
+```
+quiet devotion instrumental, harp arpeggios, soft strings, distant boy soprano texture, intimate and reverent, 65 BPM, minimal, no drums
+```
+
+## Mineral — rocha, terra e metal
+
+*Solidez. Convicção, firmeza, inabalável.*
+
+**1. Firmeza**
+```
+grounded orchestral instrumental, low strings and heavy anvil percussion, steady tuba and trombone, unshakable and firm, 90 BPM, no vocals
+```
+
+**2. Forja**
+```
+forge instrumental, metallic hammer percussion, industrial textures, deep brass, relentless and solid, 105 BPM, no vocals
+```
+
+**3. Montanha**
+```
+mountain ambient instrumental, deep earth drone, sparse low piano, distant stone percussion, ancient and immovable, 60 BPM, no vocals
+```
+
+## Psy — dons psíquicos
+
+*Místico e misterioso, na linha das músicas de meditação.*
+
+**1. Meditação**
+```
+meditative ambient instrumental, singing bowls and soft drone, slow breathing pads, tranquil and trance like, 60 BPM, no percussion, no vocals
+```
+
+**2. Premonição**
+```
+psychic mystery instrumental, detuned celesta, reversed textures, whispering wordless voices, dissonant swells, uncanny and disorienting, 80 BPM
+```
+
+**3. Expansão**
+```
+cosmic mind instrumental, warm analog pads, slow evolving drone, distant wordless choir, vast inner space, 65 BPM, no percussion
+```
+
+## Umbra — o profano e oculto
+
+*Tema de vilão: causa medo e dá a sensação de olhar para o proibido.*
+
+**1. Rito**
+```
+sinister ritual instrumental, dark low male chanting texture, pipe organ, deep drums, church ruins reverb, forbidden and ominous, 75 BPM
+```
+
+**2. Vilão**
+```
+villain theme instrumental, menacing low brass, dissonant string clusters, slow ticking percussion, cold and calculating, 85 BPM, no vocals
+```
+
+**3. Pavor**
+```
+creeping dread ambient instrumental, sub bass drone, scraping metallic textures, distant whispers, fear of the unseen, 55 BPM, no clear beat
 ```
 
 ---
@@ -409,26 +554,47 @@ Audio("teste.wav")
 
 ### 4. Geração em lote — ELEMENTOS
 
-Cole a célula inteira (dicionário + laço) e rode. São 15 faixas, ~10 a 15
+Cole a célula inteira (dicionário + laço) e rode. São 36 faixas, ~25 a 35
 minutos no total. O progresso aparece embaixo da célula, um nome por vez.
 
 ```python
 TEMAS = {
-    "fae_1":     "ethereal fantasy instrumental, celesta and harp arpeggios, soft breathy female choir pads, light sustained strings, whimsical and gentle, magical forest at dawn, 85 BPM, no drums, loopable",
-    "fae_2":     "playful fairy tale instrumental, pizzicato strings, glockenspiel and music box, light woodwinds, curious and mischievous, storybook magic, 110 BPM, soft percussion, no vocals",
-    "fae_3":     "bittersweet fantasy instrumental, solo harp over warm string pad, distant wordless soprano, nostalgic and fragile, faded enchantment, 70 BPM, sparse, no drums",
-    "electro_1": "epic hybrid orchestral instrumental, staccato low strings, synth pulses and arpeggiated bass, rising tension, storm gathering, 120 BPM, building percussion, no vocals",
-    "electro_2": "aggressive hybrid trailer instrumental, distorted synth bass, brass stabs, industrial percussion hits, electric and violent, 140 BPM, no vocals",
-    "electro_3": "dark ambient electronic instrumental, humming electrical drone, slow detuned synth pad, occasional crackle, restrained menace, 60 BPM, minimal, no vocals",
-    "psy_1":     "dreamlike ambient instrumental, shimmering bells, reversed pads, soft granular texture, floating and hypnotic, altered consciousness, 95 BPM, no drums, no vocals",
-    "psy_2":     "unsettling psychological instrumental, detuned celesta, whispering wordless voices, dissonant string swells, uncanny and disorienting, 80 BPM, no clear beat",
-    "psy_3":     "cosmic meditative instrumental, warm analog pads, slow evolving drone, distant wordless choir, vast and serene, mind expanding, 65 BPM, no percussion",
-    "aqua_1":    "dark cinematic instrumental, deep cellos and double bass, submerged pads, distant taiko drums, melancholic and vast, sunken depths, 70 BPM, no vocals",
-    "aqua_2":    "flowing orchestral instrumental, rolling harp and strings, soft marimba, gentle woodwinds, fluid and continuous motion, river current, 100 BPM, light percussion, no vocals",
-    "aqua_3":    "stormy epic orchestral instrumental, surging strings, low brass swells, crashing percussion, powerful and turbulent, ocean tempest, 130 BPM, no vocals",
-    "aero_1":    "light adventurous orchestral instrumental, flutes and pizzicato strings, bright horns, airy and soaring, wind over open plains, 110 BPM, no vocals",
-    "aero_2":    "gentle pastoral instrumental, solo flute over warm strings, soft acoustic guitar, calm and open, morning breeze, 90 BPM, minimal percussion, no vocals",
-    "aero_3":    "fast orchestral chase instrumental, rapid string ostinato, urgent woodwinds, driving light percussion, swirling and unpredictable, gale winds, 145 BPM, no vocals",
+    "aero_1":     "gentle wind instrumental, solo wooden flute and soft human whistling, airy sustained pads, distant wind chimes, calm and open, breeze over empty plains, 90 BPM, minimal percussion, no vocals",
+    "aero_2":     "soaring adventure instrumental, pan flute lead over sweeping strings, bright horns, weightless and free, flight above the clouds, 110 BPM, light cymbal swells, no vocals",
+    "aero_3":     "turbulent orchestral instrumental, rapid piccolo and flute runs, whistling wind textures, urgent string ostinato, swirling and violent gale, 145 BPM, driving percussion, no vocals",
+    "aqua_1":     "flowing orchestral instrumental, legato strings and harp arpeggios, soft muted trumpet melody, gentle marimba, fluid and weightless, clear running river, 100 BPM, no vocals",
+    "aqua_2":     "mysterious underwater instrumental, distant french horns, submerged string pads, sparse piano drops, deep reverb, unknown depths, 75 BPM, no drums, no vocals",
+    "aqua_3":     "crushing deep sea instrumental, heavy low brass swells, dense cello section, slow taiko pulse, immense pressure, dark and vast, 65 BPM, no vocals",
+    "bio_1":      "ancient nature instrumental, solo cello over native wooden flute, frame drum and seed rattles, warm and living, old runes in a deep forest, 80 BPM, no vocals",
+    "bio_2":      "mystical growth instrumental, layered cellos, ocarina and pan pipes, earthy hand percussion, soft wordless humming, benevolent mystery, 95 BPM",
+    "bio_3":      "ritual of life instrumental, tribal drums and shakers, cello ostinato, bone flute, layered chanting texture, primal and sacred, 110 BPM",
+    "electro_1":  "electric hybrid orchestral instrumental, staccato strings with synth arpeggio, crackling energy textures, brass stabs, fast and charged, 130 BPM, no vocals",
+    "electro_2":  "high energy rock hybrid instrumental, distorted electric guitar riff, driving live drums, synth bass pulse, adrenaline surge, 150 BPM, no vocals",
+    "electro_3":  "static charge ambient instrumental, humming electrical drone, glitchy percussive clicks, slow detuned synth pad, restrained tension before the strike, 70 BPM, no vocals",
+    "fae_1":      "joyful fairy instrumental, celesta and glockenspiel, pizzicato strings, light flute, bright and playful, storybook magic, 115 BPM, tambourine, no vocals",
+    "fae_2":      "wonder and discovery instrumental, harp arpeggios, shimmering bells, warm strings swelling in awe, magic revealed, 90 BPM, no vocals",
+    "fae_3":      "festive fairy dance instrumental, fiddle and tin whistle, hand claps and bodhran, accordion, communal celebration, 130 BPM, no vocals",
+    "flama_1":    "heroic orchestral instrumental, triumphant french horns and trumpets, soaring strings, timpani and cymbals, brave and blazing, 120 BPM, no vocals",
+    "flama_2":    "dangerous fire instrumental, low brass growls, aggressive string ostinato, crackling ember percussion, menacing and unpredictable, 135 BPM, no vocals",
+    "flama_3":    "warm fireside instrumental, acoustic guitar and fiddle, hand percussion, bright horns, joyful and energetic, 110 BPM, no vocals",
+    "glacial_1":  "extreme range instrumental, very high sustained violin harmonics over very low contrabass drone, glassy bells, cold and vast, frozen beauty, 60 BPM, no vocals",
+    "glacial_2":  "heavy glacial instrumental, deep booming drums, low brass, piercing high string swells, crushing ice, dangerous and slow, 70 BPM, no vocals",
+    "glacial_3":  "crystalline ambient instrumental, high celesta and glass harmonica, subsonic drone, sparse piano, beautiful and lethal stillness, 55 BPM, no percussion, no vocals",
+    "kinetic_1":  "determined orchestral instrumental, driving string ostinato, steady taiko and snare, rising brass, relentless forward motion, 125 BPM, no vocals",
+    "kinetic_2":  "athletic percussive instrumental, body percussion and stomping drums, punchy brass hits, building raw energy, human effort, 140 BPM, no vocals",
+    "kinetic_3":  "resilient emotional instrumental, solo piano over swelling strings, slow building drums, struggle turning into resolve, 100 BPM, no vocals",
+    "lumen_1":    "sacred instrumental, solo harp and warm string pad, wordless female choir, cathedral reverb, serene and divine, 70 BPM, no drums",
+    "lumen_2":    "radiant sacred instrumental, full choir on open vowels, pipe organ and brass chorale, ringing bells, glorious and uplifting, 85 BPM",
+    "lumen_3":    "quiet devotion instrumental, harp arpeggios, soft strings, distant boy soprano texture, intimate and reverent, 65 BPM, minimal, no drums",
+    "mineral_1":  "grounded orchestral instrumental, low strings and heavy anvil percussion, steady tuba and trombone, unshakable and firm, 90 BPM, no vocals",
+    "mineral_2":  "forge instrumental, metallic hammer percussion, industrial textures, deep brass, relentless and solid, 105 BPM, no vocals",
+    "mineral_3":  "mountain ambient instrumental, deep earth drone, sparse low piano, distant stone percussion, ancient and immovable, 60 BPM, no vocals",
+    "psy_1":      "meditative ambient instrumental, singing bowls and soft drone, slow breathing pads, tranquil and trance like, 60 BPM, no percussion, no vocals",
+    "psy_2":      "psychic mystery instrumental, detuned celesta, reversed textures, whispering wordless voices, dissonant swells, uncanny and disorienting, 80 BPM",
+    "psy_3":      "cosmic mind instrumental, warm analog pads, slow evolving drone, distant wordless choir, vast inner space, 65 BPM, no percussion",
+    "umbra_1":    "sinister ritual instrumental, dark low male chanting texture, pipe organ, deep drums, church ruins reverb, forbidden and ominous, 75 BPM",
+    "umbra_2":    "villain theme instrumental, menacing low brass, dissonant string clusters, slow ticking percussion, cold and calculating, 85 BPM, no vocals",
+    "umbra_3":    "creeping dread ambient instrumental, sub bass drone, scraping metallic textures, distant whispers, fear of the unseen, 55 BPM, no clear beat",
 }
 
 import os, numpy as np, scipy.io.wavfile

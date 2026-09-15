@@ -19,8 +19,8 @@ Prompts prontos para gerar a trilha do slideshow do módulo Chars no MusicGen
 2. Copie o prompt, cole no lugar do `prompt = "..."` e rode.
 3. **Gere de 2 a 3 vezes o mesmo prompt** — cada execução sai diferente, e a
    terceira costuma ser a boa.
-4. `max_new_tokens=1500` ≈ 30 segundos. Como a trilha toca em loop por baixo do
-   slideshow, 30s bastam. Para 1 minuto, use `3000`.
+4. `max_new_tokens=3000` ≈ 1 minuto de música, que é o padrão adotado aqui.
+   Para faixas de 30s (metade do tempo de geração), use `1500`.
 5. No fim, normalize o volume de todas as faixas no mesmo nível (o comando de
    `ffmpeg` com `loudnorm` já está na célula em lote) — senão o slideshow dá um
    solavanco de volume a cada troca de bloco.
@@ -553,7 +553,7 @@ from IPython.display import Audio
 
 prompt = "ethereal fantasy instrumental, celesta and harp, breathy choir, whimsical, 85 BPM, no vocals"
 
-saida = gerador(prompt, forward_params={"do_sample": True, "max_new_tokens": 1500})
+saida = gerador(prompt, forward_params={"do_sample": True, "max_new_tokens": 3000})
 
 audio = np.squeeze(saida["audio"])
 if audio.ndim > 1:
@@ -565,8 +565,13 @@ Audio("teste.wav")
 
 ### 4. Geração em lote — ELEMENTOS
 
-Cole a célula inteira (dicionário + laço) e rode. São 36 faixas, ~25 a 35
-minutos no total. O progresso aparece embaixo da célula, um nome por vez.
+Cole a célula inteira (dicionário + laço) e rode. São 36 faixas de ~1 minuto,
+o que dá **de 50 minutos a 1h15** no total. O progresso aparece embaixo da
+célula, um nome por vez.
+
+> A sessão grátis do Colab derruba o notebook depois de um tempo ocioso — deixe
+> a aba aberta e dê uma olhada de vez em quando. Se cair, rode de novo a célula
+> 2 e depois esta: as faixas já prontas são puladas.
 
 ```python
 TEMAS = {
@@ -614,7 +619,7 @@ os.makedirs("trilhas", exist_ok=True)
 
 for nome, p in TEMAS.items():
     print("Gerando:", nome)
-    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 3000})
     audio = np.squeeze(saida["audio"])
     if audio.ndim > 1:
         audio = audio.T
@@ -630,7 +635,7 @@ print("Pronto. Arquivos em trilhas/")
 
 ### 5. Geração em lote — REGIÕES
 
-Mesma coisa para as regiões: 18 faixas, ~12 a 18 minutos. **Renomeie as chaves**
+Mesma coisa para as regiões: 18 faixas, ~25 a 40 minutos. **Renomeie as chaves**
 (`cidadela_1`, `gelo_1`…) para os nomes das suas regiões antes de rodar, e ajuste
 o bioma/instrumento no texto quando fizer sentido.
 
@@ -662,7 +667,7 @@ os.makedirs("trilhas", exist_ok=True)
 
 for nome, p in TEMAS.items():
     print("Gerando:", nome)
-    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 3000})
     audio = np.squeeze(saida["audio"])
     if audio.ndim > 1:
         audio = audio.T
@@ -711,11 +716,16 @@ arquivo.
 | 4500 | ~1min30 |
 | 6000 | ~2 min |
 
-**O modelo foi treinado com trechos de 30 segundos.** Além disso ele continua
-gerando, mas vai perdendo o rumo: repete demais, muda de ideia, às vezes desmancha
-a melodia. Até ~1 minuto costuma segurar bem; acima de 2 minutos a chance de sair
-algo estranho é alta. O tempo de geração também é proporcional — faixas de 1
-minuto dobram o tempo do lote.
+**As células deste guia usam 3000 (~1 minuto).**
+
+O modelo foi treinado com trechos de 30 segundos, então acima disso ele continua
+gerando mas vai perdendo o rumo: repete demais, muda de ideia, às vezes desmancha
+a melodia. Em 1 minuto ele ainda segura bem na maioria das vezes; acima de 2
+minutos a chance de sair algo estranho é alta. Se alguma faixa vier arrastada ou
+repetitiva, apague o mp3 dela e regere com `1500`.
+
+O tempo de geração é proporcional à duração: cada minuto de música custa cerca
+de 1 minuto e meio de processamento na T4 com o `musicgen-small`.
 
 ## Alternativa melhor: esticar por repetição
 
@@ -734,11 +744,11 @@ for caminho in glob.glob("trilhas/*.mp3"):
 print("Pronto.")
 ```
 
-`-stream_loop 5` repete 6 vezes: 30s viram 3 minutos.
+`-stream_loop 5` repete 6 vezes: faixas de 1 minuto viram 6 minutos.
 
 > Como há **3 faixas por elemento**, o player do slideshow pode alternar entre
-> elas em vez de repetir a mesma — 30s × 3 já dão 1min30 de variação real. Por
-> isso o padrão de 1500 tokens costuma bastar.
+> elas em vez de repetir a mesma — 1 minuto × 3 já dão 3 minutos de variação
+> real por elemento, sem repetir nada.
 
 # Vocabulário para você criar os seus
 

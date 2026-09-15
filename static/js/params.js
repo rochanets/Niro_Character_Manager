@@ -12,15 +12,34 @@ let currentType = 'region';
 let allParams = {};
 let addImageInput = null;
 
+// Abas que não são CRUD de parâmetro têm cada uma o seu renderizador.
+const ABAS_ESPECIAIS = { data: () => renderData(), tracks: () => renderTracks() };
+
 async function load() {
-  if (currentType === 'data') { renderData(); return; }
+  if (ABAS_ESPECIAIS[currentType]) { await ABAS_ESPECIAIS[currentType](); return; }
   allParams = await api('/api/params');
   renderAdd();
   renderList();
 }
 
+// Link direto para uma aba: /parametros#trilhas. O endereço usa o nome em
+// português (o que o usuário vê); os data-type do HTML seguem em inglês.
+const APELIDOS_ABA = {
+  regioes: 'region', afiliacoes: 'affiliation', elementos: 'element',
+  armas: 'weapon', roles: 'role', trilhas: 'tracks', dados: 'data',
+};
+const APELIDO_POR_ABA = Object.fromEntries(
+  Object.entries(APELIDOS_ABA).map(([apelido, tipo]) => [tipo, apelido]));
+
+function abaDoEndereco() {
+  const bruto = decodeURIComponent((location.hash || '').replace('#', ''));
+  const alvo = APELIDOS_ABA[bruto] || bruto;
+  return document.querySelector(`#param-tabs .tab[data-type="${alvo}"]`) ? alvo : null;
+}
+
 // ---------------------------------------------------------------- aba Dados (backup)
 function renderData() {
+  document.getElementById('param-list').classList.remove('as-tracks');
   document.getElementById('param-list').innerHTML = '';
   const box = document.getElementById('param-add');
   box.innerHTML = `
@@ -178,6 +197,7 @@ function renderAdd() {
 }
 
 function renderList() {
+  document.getElementById('param-list').classList.remove('as-tracks');
   const meta = META[currentType];
   const items = allParams[currentType] || [];
   const list = document.getElementById('param-list');
@@ -337,13 +357,358 @@ document.querySelectorAll('#param-tabs .tab').forEach((tab) => {
     document.querySelectorAll('#param-tabs .tab').forEach((t) => t.classList.remove('active'));
     tab.classList.add('active');
     currentType = tab.dataset.type;
-    if (currentType === 'data') {
-      renderData();
-    } else {
-      renderAdd();
-      renderList();
-    }
+    history.replaceState(null, '', currentType === 'region'
+      ? location.pathname
+      : `#${APELIDO_POR_ABA[currentType] || currentType}`);
+    load().catch((e) => toast(e.message, 'error'));
   });
 });
+
+const abaInicial = abaDoEndereco();
+if (abaInicial) {
+  currentType = abaInicial;
+  document.querySelectorAll('#param-tabs .tab').forEach((t) =>
+    t.classList.toggle('active', t.dataset.type === abaInicial));
+}
+
+
+/* ================================================================
+   Aba Trilhas — trilha sonora do slideshow do módulo Chars.
+   Envio em lote, vínculo automático pelo nome do arquivo, lixeira de
+   30 dias e os ajustes de som usados pelo slideshow.
+   ================================================================ */
+
+let tracks = [];
+let trackSettings = { duck: 0.15, video_sound: 1, volume: 0.7 };
+let trashOpen = false;
+
+const SCOPE_LABEL = { element: 'Elemento', region: 'Região', geral: 'Geral' };
+
+async function renderTracks() {
+  [allParams, tracks, trackSettings] = await Promise.all([
+    api('/api/params'),
+    api('/api/tracks'),
+    api('/api/tracks/settings').catch(() => trackSettings),
+  ]);
+  pintarCaixaTrilhas();
+  pintarListaTrilhas();
+}
+
+function pintarCaixaTrilhas() {
+  const duck = Math.round(trackSettings.duck * 100);
+  const vol = Math.round(trackSettings.volume * 100);
+  document.getElementById('param-add').innerHTML = `
+    <div class="drop-zone" id="drop-zone">
+      <div class="dz-icon">&#x266B;</div>
+      <div><b>Arraste as faixas para cá</b> ou clique para escolher os arquivos</div>
+      <div class="ii-hint">MP3, M4A, OGG, WAV — vários de uma vez</div>
+      <div class="ii-hint">
+        O vínculo é automático pelo nome: <code>fae_1.mp3</code> vira o elemento Fae,
+        <code>aurion_2.mp3</code> vira a região Aurion.
+      </div>
+      <input type="file" id="file-input" accept="audio/*" multiple hidden>
+    </div>
+    <div class="ai-progress" id="upload-progress"><div class="bar"></div></div>
+    <div id="upload-label" class="ii-note" style="display:none;text-align:right"></div>
+
+    <div class="settings-grid">
+      <label class="set-item">
+        <span class="set-label">Som dos vídeos dos personagens</span>
+        <span class="set-control">
+          <input type="checkbox" id="set-video-sound" ${trackSettings.video_sound ? 'checked' : ''}>
+          <span class="set-hint">Os vídeos tocam com o áudio próprio deles</span>
+        </span>
+      </label>
+      <label class="set-item">
+        <span class="set-label">Volume da trilha <b>durante os vídeos</b></span>
+        <span class="set-control">
+          <input type="range" id="set-duck" min="0" max="100" step="5" value="${duck}">
+          <output id="set-duck-val">${duck}%</output>
+        </span>
+        <span class="set-hint">Quanto a música recua quando o vídeo começa. 0% deixa só o som do vídeo.</span>
+      </label>
+      <label class="set-item">
+        <span class="set-label">Volume inicial da trilha</span>
+        <span class="set-control">
+          <input type="range" id="set-volume" min="0" max="100" step="5" value="${vol}">
+          <output id="set-volume-val">${vol}%</output>
+        </span>
+        <span class="set-hint">Ponto de partida; dá para mudar na barra do slideshow.</span>
+      </label>
+    </div>`;
+  ligarEnvioTrilhas();
+  ligarAjustesTrilhas();
+}
+
+function refOptions(scope, current) {
+  if (scope === 'geral') return '';
+  const lista = [...new Set((allParams[scope] || []).map((p) => p.name))];
+  return lista.map((nome) =>
+    `<option value="${esc(nome)}" ${nome === current ? 'selected' : ''}>${esc(nome)}</option>`).join('');
+}
+
+function trackRow(t) {
+  return `
+    <div class="track-row" data-id="${t.id}">
+      <div class="tk-main">
+        <span class="tk-name">${esc(t.name)}</span>
+        <audio controls preload="none" src="${esc(t.url)}"></audio>
+      </div>
+      <div class="tk-actions">
+        <select class="tk-scope">
+          <option value="element" ${t.scope === 'element' ? 'selected' : ''}>Elemento</option>
+          <option value="region" ${t.scope === 'region' ? 'selected' : ''}>Região</option>
+          <option value="geral" ${t.scope === 'geral' ? 'selected' : ''}>Geral</option>
+        </select>
+        <select class="tk-ref" ${t.scope === 'geral' ? 'disabled' : ''}>
+          <option value="">— vincular a —</option>
+          ${refOptions(t.scope, t.ref_name)}
+        </select>
+        <button type="button" class="icon-btn danger tk-del" title="Excluir">&#x2715;</button>
+      </div>
+    </div>`;
+}
+
+function pintarListaTrilhas() {
+  const lista = document.getElementById('param-list');
+  lista.classList.add('as-tracks');   // desliga o grid de cartões dos parâmetros
+  const cabecalho = `
+    <div class="tracks-head">
+      <span class="page-sub">${tracks.length} faixa(s) cadastrada(s)</span>
+      <button type="button" class="btn small ${trashOpen ? 'primary' : ''}" id="toggle-trash">Lixeira</button>
+    </div>`;
+
+  if (!tracks.length) {
+    lista.innerHTML = cabecalho + `<div class="empty-state glass"><span class="rune">&#x16DE;</span>
+      Nenhuma faixa cadastrada ainda. Arraste os arquivos para o campo acima.</div>
+      <div id="trash-area" ${trashOpen ? '' : 'hidden'}></div>`;
+    ligarListaTrilhas();
+    return;
+  }
+
+  // agrupa por vínculo: cada elemento/região vira um container e o que não
+  // casou com nada fica em "Geral".
+  const grupos = new Map();
+  for (const t of tracks) {
+    const chave = t.ref_name ? `${SCOPE_LABEL[t.scope]}: ${t.ref_name}` : 'Geral (sem vínculo)';
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(t);
+  }
+  const chaves = [...grupos.keys()].sort((a, b) => {
+    if (a.startsWith('Geral')) return 1;
+    if (b.startsWith('Geral')) return -1;
+    return a.localeCompare(b, 'pt-BR');
+  });
+
+  lista.innerHTML = cabecalho + chaves.map((chave) => `
+    <div class="group-container glass">
+      <h3>${esc(chave)} <span class="count">(${grupos.get(chave).length})</span></h3>
+      <div class="track-list">${grupos.get(chave).map(trackRow).join('')}</div>
+    </div>`).join('') + `<div id="trash-area" ${trashOpen ? '' : 'hidden'}></div>`;
+  ligarListaTrilhas();
+  if (trashOpen) renderTrash().catch((e) => toast(e.message, 'error'));
+}
+
+async function salvarTrilha(id, dados) {
+  const t = tracks.find((x) => x.id === id);
+  const atualizado = await api(`/api/tracks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: t.name, scope: t.scope, ref_name: t.ref_name, credit: t.credit, ...dados }),
+  });
+  Object.assign(t, atualizado);
+  pintarListaTrilhas();
+}
+
+// ---------------------------------------------------------------- envio em lote
+async function enviarTrilhas(arquivos) {
+  const lista = [...arquivos].filter((f) =>
+    f.type.startsWith('audio/') || /\.(mp3|m4a|aac|ogg|oga|wav|flac)$/i.test(f.name));
+  if (!lista.length) { toast('Nenhum arquivo de áudio reconhecido.', 'error'); return; }
+
+  const form = new FormData();
+  lista.forEach((f) => form.append('files', f));
+
+  const barra = document.getElementById('upload-progress');
+  const rotulo = document.getElementById('upload-label');
+  barra.classList.add('active');
+  rotulo.style.display = 'block';
+  rotulo.textContent = `Enviando ${lista.length} faixa(s)...`;
+
+  try {
+    const resp = await apiUpload('/api/tracks', 'POST', form, (frac) => {
+      barra.querySelector('.bar').style.width = `${(frac * 100).toFixed(0)}%`;
+      rotulo.textContent = `Enviando ${lista.length} faixa(s)... ${(frac * 100).toFixed(0)}%`;
+    });
+    const vinculadas = (resp.tracks || []).filter((t) => t.ref_name).length;
+    toast(`${(resp.tracks || []).length} faixa(s) enviada(s), ${vinculadas} vinculada(s) automaticamente.`, 'success');
+    (resp.errors || []).forEach((e) => toast(e, 'error'));
+    tracks = await api('/api/tracks');
+    pintarListaTrilhas();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    barra.classList.remove('active');
+    barra.querySelector('.bar').style.width = '0%';
+    rotulo.style.display = 'none';
+  }
+}
+
+function ligarEnvioTrilhas() {
+  const zona = document.getElementById('drop-zone');
+  const input = document.getElementById('file-input');
+  zona.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => {
+    if (input.files.length) enviarTrilhas(input.files);
+    input.value = '';
+  });
+  ['dragover', 'dragenter'].forEach((ev) =>
+    zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach((ev) =>
+    zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.remove('dragover'); }));
+  zona.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files.length) enviarTrilhas(e.dataTransfer.files);
+  });
+}
+
+// ---------------------------------------------------------------- ajustes de som
+function ligarAjustesTrilhas() {
+  document.getElementById('set-video-sound').addEventListener('change', function () {
+    salvarAjustesTrilha({ video_sound: this.checked ? 1 : 0 });
+  });
+  ['duck', 'volume'].forEach((campo) => {
+    const slider = document.getElementById(`set-${campo}`);
+    slider.addEventListener('input', function () {
+      document.getElementById(`set-${campo}-val`).textContent = `${this.value}%`;
+    });
+    // só grava quando solta o controle, para não disparar um PUT por pixel
+    slider.addEventListener('change', function () {
+      salvarAjustesTrilha({ [campo]: this.value / 100 });
+    });
+  });
+}
+
+async function salvarAjustesTrilha(mudanca) {
+  try {
+    trackSettings = await api('/api/tracks/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mudanca),
+    });
+    toast('Ajuste salvo.', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ---------------------------------------------------------------- lista e lixeira
+let listaTrilhasLigada = false;
+
+function ligarListaTrilhas() {
+  // #param-list é reaproveitado a cada render: os listeners ficam nele por
+  // delegação e são registrados uma única vez.
+  if (listaTrilhasLigada) return;
+  listaTrilhasLigada = true;
+  const lista = document.getElementById('param-list');
+
+  lista.addEventListener('change', (e) => {
+    const linha = e.target.closest('.track-row');
+    if (!linha || linha.closest('#trash-area')) return;
+    const id = +linha.dataset.id;
+    if (e.target.classList.contains('tk-scope')) {
+      salvarTrilha(id, { scope: e.target.value, ref_name: '' }).catch((err) => toast(err.message, 'error'));
+    } else if (e.target.classList.contains('tk-ref')) {
+      salvarTrilha(id, { ref_name: e.target.value }).catch((err) => toast(err.message, 'error'));
+    }
+  });
+
+  lista.addEventListener('click', async (e) => {
+    if (e.target.closest('#toggle-trash')) {
+      trashOpen = !trashOpen;
+      const area = document.getElementById('trash-area');
+      area.hidden = !trashOpen;
+      document.getElementById('toggle-trash').classList.toggle('primary', trashOpen);
+      if (trashOpen) await renderTrash().catch((err) => toast(err.message, 'error'));
+      return;
+    }
+
+    const linha = e.target.closest('.track-row');
+    if (!linha) return;
+    const id = +linha.dataset.id;
+
+    if (e.target.closest('.tk-del')) {
+      const t = tracks.find((x) => x.id === id);
+      const ok = await confirmDialog({
+        title: 'Excluir faixa',
+        message: `A faixa "${t.name}" vai para a lixeira e pode ser restaurada por 30 dias.`,
+        confirmLabel: 'Excluir',
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await api(`/api/tracks/${id}`, { method: 'DELETE' });
+        tracks = tracks.filter((x) => x.id !== id);
+        pintarListaTrilhas();
+        toast('Faixa movida para a lixeira.', 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    } else if (e.target.closest('.tk-restore')) {
+      try {
+        await api(`/api/tracks/${id}/restore`, { method: 'POST' });
+        toast('Faixa restaurada.', 'success');
+        tracks = await api('/api/tracks');
+        pintarListaTrilhas();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    } else if (e.target.closest('.tk-purge')) {
+      const ok = await confirmDialog({
+        title: 'Excluir definitivamente',
+        message: 'O arquivo será apagado do servidor. Esta ação não pode ser desfeita.',
+        confirmLabel: 'Excluir para sempre',
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await api(`/api/tracks/${id}/permanent`, { method: 'DELETE' });
+        toast('Faixa excluída definitivamente.', 'success');
+        await renderTrash();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }
+  });
+}
+
+async function renderTrash() {
+  const area = document.getElementById('trash-area');
+  if (!area) return;
+  const lista = await api('/api/tracks/archived');
+  if (!lista.length) {
+    area.innerHTML = `<div class="group-container glass"><h3>Lixeira</h3>
+      <p class="page-sub">Nenhuma faixa excluída.</p></div>`;
+    return;
+  }
+  area.innerHTML = `
+    <div class="group-container glass">
+      <h3>Lixeira <span class="count">(${lista.length})</span></h3>
+      <p class="page-sub">Faixas excluídas somem de vez depois de 30 dias.</p>
+      <div class="track-list">
+        ${lista.map((t) => `
+          <div class="track-row" data-id="${t.id}">
+            <div class="tk-main">
+              <span class="tk-name">${esc(t.name)}</span>
+              <span class="page-sub">${t.days_left} dia(s) restante(s)</span>
+            </div>
+            <div class="tk-actions">
+              <button type="button" class="btn small tk-restore">Restaurar</button>
+              <button type="button" class="icon-btn danger tk-purge" title="Excluir definitivamente">&#x2715;</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
 
 load().catch((e) => toast(e.message, 'error'));

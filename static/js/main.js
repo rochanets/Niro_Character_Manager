@@ -129,6 +129,39 @@ function closeModal(node) {
   }
 }
 
+// ---------------------------------------------------------------- confirmação
+// Diálogo temático do projeto — nunca confirm() nativo, que abre janela do SO
+// fora do tema. Devolve uma Promise que resolve true/false.
+function confirmDialog({ title, message, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar',
+                         danger = false } = {}) {
+  return new Promise((resolve) => {
+    const overlay = openModal(`
+      <h3><span class="rune">&#x16DE;</span> ${esc(title || 'Confirmar')}</h3>
+      <p style="color:var(--ink-2);line-height:1.6">${esc(message || '')}</p>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-cancel>${esc(cancelLabel)}</button>
+        <button type="button" class="btn ${danger ? 'danger' : 'primary'}" data-ok>${esc(confirmLabel)}</button>
+      </div>`);
+    let respondido = false;
+    const responder = (valor) => {
+      if (respondido) return;
+      respondido = true;
+      resolve(valor);
+    };
+    overlay.querySelector('[data-cancel]').addEventListener('click', () => {
+      responder(false);
+      closeModal(overlay);
+    });
+    overlay.querySelector('[data-ok]').addEventListener('click', () => {
+      responder(true);
+      closeModal(overlay);
+    });
+    // fechar pelo X, pelo Esc ou clicando fora equivale a cancelar
+    const original = overlay._dismiss;
+    overlay._dismiss = () => { responder(false); original(); };
+  });
+}
+
 // ---------------------------------------------------------------- input de imagem
 // Aceita clique (upload), arrastar-e-soltar e Ctrl+V.
 // O paste vai para o input sob o mouse, o focado, ou o único da página.

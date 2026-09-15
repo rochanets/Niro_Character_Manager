@@ -72,6 +72,7 @@ got_request_exception.connect(_on_request_exception, app)
 ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
 # Vídeo demonstrativo do personagem: roda em loop, sem som, como um gif
 ALLOWED_VIDEO_EXTS = {".mp4", ".webm", ".ogg", ".ogv", ".mov", ".m4v", ".gif"}
+ALLOWED_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".ogg", ".oga", ".wav", ".flac", ".webm"}
 
 PARAM_TYPES = {
     "region":      {"table": "regions",      "fk": "region_id",      "has_image": False, "label": "Região"},
@@ -156,6 +157,47 @@ def save_video(file_storage, subdir):
     os.makedirs(dest_dir, exist_ok=True)
     file_storage.save(os.path.join(dest_dir, name))
     return f"uploads/{subdir}/{name}"
+
+
+def save_audio(file_storage, subdir="tracks"):
+    filename = file_storage.filename or "trilha.mp3"
+    ext = os.path.splitext(filename)[1].lower() or ".mp3"
+    if ext not in ALLOWED_AUDIO_EXTS:
+        raise ValueError(f"Formato de áudio não suportado: {ext}")
+    name = uuid4().hex + ext
+    dest_dir = os.path.join(UPLOAD_DIR, subdir)
+    os.makedirs(dest_dir, exist_ok=True)
+    file_storage.save(os.path.join(dest_dir, name))
+    return f"uploads/{subdir}/{name}"
+
+
+def _slug(text):
+    """Minúsculo, sem acento e só com letras e números — para casar nomes de
+    arquivo com nomes de parâmetros sem depender de acentuação ou maiúscula."""
+    base = unicodedata.normalize("NFKD", text or "")
+    base = "".join(c for c in base if not unicodedata.combining(c))
+    return "".join(c for c in base.lower() if c.isalnum())
+
+
+def guess_track_link(conn, filename):
+    """Descobre a que elemento ou região uma faixa pertence pelo nome do arquivo.
+    `fae_1.mp3` vira o elemento Fae; `aurion_2_longo.mp3` vira a região Aurion.
+    Compara por prefixo, então nomes compostos ("Terras Geladas") também casam.
+    Devolve (scope, ref_name) ou ("geral", None) quando nada bate."""
+    base = _slug(os.path.splitext(os.path.basename(filename or ""))[0])
+    melhor = ("geral", None, 0)
+    for scope, tabela in (("element", "elements"), ("region", "regions")):
+        for row in conn.execute(f"SELECT name FROM {tabela}"):
+            alvo = _slug(row["name"])
+            if alvo and base.startswith(alvo) and len(alvo) > melhor[2]:
+                melhor = (scope, row["name"], len(alvo))
+    return melhor[0], melhor[1]
+
+
+def track_to_dict(row):
+    d = dict(row)
+    d["url"] = f"/static/{d['file']}"
+    return d
 
 
 def fetch_params(conn):
@@ -294,6 +336,187 @@ def page_history():
 def page_archive():
     purge_expired_archive()
     return render_template("archive.html", active="archive")
+
+
+# ---------------------------------------------------------------- trilha sonora
+
+TRACK_SETTINGS_DEFAULTS = {
+    "duck": 0.15,        # volume da trilha enquanto o vídeo do personagem toca
+    "video_sound": 1,    # os vídeos tocam com o som próprio deles
+    "volume": 0.7,       # volume inicial da trilha
+}
+
+
+def read_track_settings(conn):
+    valores = dict(TRACK_SETTINGS_DEFAULTS)
+    for row in conn.execute("SELECT key, value FROM settings WHERE key LIKE 'track.%'"):
+        chave = row["key"].split(".", 1)[1]
+        if chave not in valores:
+            continue
+        try:
+            valores[chave] = int(row["value"]) if chave == "video_sound" else float(row["value"])
+        except (TypeError, ValueError):
+            pass
+    return valores
+
+
+@app.route("/api/tracks/settings")
+def api_track_settings():
+    conn = get_db()
+    valores = read_track_settings(conn)
+    conn.close()
+    return jsonify(valores)
+
+
+@app.route("/api/tracks/settings", methods=["PUT"])
+def api_track_settings_save():
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    for chave, padrao in TRACK_SETTINGS_DEFAULTS.items():
+        if chave not in data:
+            continue
+        if chave == "video_sound":
+            valor = 1 if data[chave] else 0
+        else:
+            try:
+                valor = min(1.0, max(0.0, float(data[chave])))
+            except (TypeError, ValueError):
+                continue
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                     (f"track.{chave}", str(valor)))
+    conn.commit()
+    valores = read_track_settings(conn)
+    conn.close()
+    return jsonify(valores)
+
+
+@app.route("/api/tracks")
+def api_tracks():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM tracks WHERE archived = 0 "
+        "ORDER BY scope, ref_name COLLATE NOCASE, name COLLATE NOCASE"
+    ).fetchall()
+    conn.close()
+    return jsonify([track_to_dict(r) for r in rows])
+
+
+@app.route("/api/tracks", methods=["POST"])
+def api_tracks_create():
+    """Cadastro em lote: aceita vários arquivos de uma vez e vincula cada um ao
+    elemento ou região cujo nome abre o nome do arquivo (fae_1.mp3 -> Fae)."""
+    arquivos = [f for f in request.files.getlist("files") if f and f.filename]
+    if not arquivos:
+        return jsonify({"error": "Nenhum arquivo enviado."}), 400
+
+    conn = get_db()
+    criadas, erros = [], []
+    for arquivo in arquivos:
+        nome = os.path.splitext(os.path.basename(arquivo.filename))[0]
+        try:
+            rel = save_audio(arquivo)
+        except ValueError as e:
+            erros.append(f"{arquivo.filename}: {e}")
+            continue
+        scope, ref_name = guess_track_link(conn, arquivo.filename)
+        cur = conn.execute(
+            "INSERT INTO tracks (name, file, scope, ref_name) VALUES (?, ?, ?, ?)",
+            (nome, rel, scope, ref_name),
+        )
+        criadas.append(conn.execute("SELECT * FROM tracks WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+    if criadas:
+        vinculadas = sum(1 for r in criadas if r["ref_name"])
+        log_event(conn, "success", "Trilhas",
+                  f"{len(criadas)} faixa(s) cadastrada(s), {vinculadas} vinculada(s) automaticamente")
+    conn.commit()
+    conn.close()
+    return jsonify({"tracks": [track_to_dict(r) for r in criadas], "errors": erros}), 201
+
+
+@app.route("/api/tracks/<int:track_id>", methods=["PUT"])
+def api_track_update(track_id):
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    row = conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Faixa não encontrada."}), 404
+
+    scope = data.get("scope", row["scope"])
+    if scope not in ("element", "region", "geral"):
+        conn.close()
+        return jsonify({"error": "Vínculo inválido."}), 400
+    ref_name = (data.get("ref_name") or "").strip() or None
+    if scope == "geral":
+        ref_name = None
+    conn.execute(
+        "UPDATE tracks SET name = ?, scope = ?, ref_name = ?, credit = ? WHERE id = ?",
+        ((data.get("name") or row["name"]).strip(), scope, ref_name,
+         (data.get("credit") or "").strip() or None, track_id),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    conn.close()
+    return jsonify(track_to_dict(row))
+
+
+@app.route("/api/tracks/<int:track_id>", methods=["DELETE"])
+def api_track_delete(track_id):
+    """Exclusão vai para a lixeira por 30 dias, como os personagens."""
+    conn = get_db()
+    row = conn.execute("SELECT name FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Faixa não encontrada."}), 404
+    conn.execute("UPDATE tracks SET archived = 1, archived_at = datetime('now') WHERE id = ?", (track_id,))
+    log_event(conn, "warning", "Trilhas", f"Faixa '{row['name']}' movida para a lixeira")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tracks/archived")
+def api_tracks_archived():
+    purge_expired_archive()
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM tracks WHERE archived = 1 ORDER BY archived_at DESC"
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = track_to_dict(r)
+        arquivada = datetime.strptime(d["archived_at"], "%Y-%m-%d %H:%M:%S")
+        d["days_left"] = max(0, 30 - (datetime.utcnow() - arquivada).days)
+        out.append(d)
+    return jsonify(out)
+
+
+@app.route("/api/tracks/<int:track_id>/restore", methods=["POST"])
+def api_track_restore(track_id):
+    conn = get_db()
+    conn.execute("UPDATE tracks SET archived = 0, archived_at = NULL WHERE id = ?", (track_id,))
+    log_event(conn, "success", "Trilhas", f"Faixa #{track_id} restaurada")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tracks/<int:track_id>/permanent", methods=["DELETE"])
+def api_track_permanent(track_id):
+    conn = get_db()
+    row = conn.execute("SELECT file, name FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Faixa não encontrada."}), 404
+    delete_upload(row["file"])
+    conn.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+    log_event(conn, "error", "Trilhas", f"Faixa '{row['name']}' excluída definitivamente")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/logs")

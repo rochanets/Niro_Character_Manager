@@ -2,6 +2,7 @@
 
 let allChars = [];
 let allParams = {};
+let allTracks = [];
 const activeDims = new Set();   // dimensões de agrupamento selecionadas
 let sortAlpha = false;
 let searchTerm = '';
@@ -77,6 +78,10 @@ function populateFilterSelects() {
 async function load() {
   loadGroupingState();
   [allChars, allParams] = await Promise.all([api('/api/characters'), api('/api/params')]);
+  // A trilha é opcional: se a rota falhar, o slideshow segue mudo em vez de quebrar.
+  allTracks = await api('/api/tracks').catch(() => []);
+  ssAudioCarregarPrefs();
+  await ssCarregarAjustes();
   populateFilterSelects();
   render();
   maybeAutoSlideshow();
@@ -284,6 +289,9 @@ function openSlideshowModal() {
   const f = { ...filters };
   let order = 'alpha';
   try { order = localStorage.getItem('niro:chars:ss-order') || 'alpha'; } catch (_) { /* storage indisponível */ }
+  ssAudioCarregarPrefs();
+  let trilha = ssAudio.modo === 'fixa' && ssAudio.fixa ? String(ssAudio.fixa.id) : ssAudio.modo;
+  if (trilha === 'auto' && !allTracks.length) trilha = 'none';
 
   const selects = SS_FILTER_LABELS.map(([dim, label, all]) => {
     const values = [...new Set((allParams[dim] || []).map((p) => p.name))];
@@ -313,6 +321,17 @@ function openSlideshowModal() {
         ${SS_ORDERS.map(([v, label]) => `<option value="${v}" ${v === order ? 'selected' : ''}>${label}</option>`).join('')}
       </select>
     </div>
+    <div class="ss-order-row">
+      <label class="field-label" for="ss-track">Trilha sonora</label>
+      <select id="ss-track">
+        <option value="auto" ${trilha === 'auto' ? 'selected' : ''}>Automática (segue o elemento ou a região)</option>
+        <option value="random" ${trilha === 'random' ? 'selected' : ''}>Aleatória entre todas</option>
+        <option value="none" ${trilha === 'none' ? 'selected' : ''}>Sem trilha</option>
+        ${allTracks.map((t) => `<option value="${t.id}" ${trilha === String(t.id) ? 'selected' : ''}>
+          Só esta: ${esc(t.name)}${t.ref_name ? ` (${esc(t.ref_name)})` : ''}</option>`).join('')}
+      </select>
+      ${allTracks.length ? '' : '<p class="page-sub">Nenhuma faixa cadastrada — veja o módulo Trilhas.</p>'}
+    </div>
     <p class="ss-count" id="ss-count"></p>
     <div class="modal-actions">
       <button type="button" class="btn" data-close>Cancelar</button>
@@ -341,14 +360,218 @@ function openSlideshowModal() {
     try { localStorage.setItem('niro:chars:ss-order', order); } catch (_) { /* storage indisponível */ }
     refresh();
   });
+  overlay.querySelector('#ss-track').addEventListener('change', function () { trilha = this.value; });
   overlay.querySelector('[data-close]').addEventListener('click', () => closeModal(overlay));
   startBtn.addEventListener('click', () => {
     const list = refresh();
     if (!list.length) return;
     closeModal(overlay);
+    ssAplicarTrilha(trilha);
     ssStart(list, f, order);
   });
   refresh();
+}
+
+// ---------------------------------------------------------------- trilha sonora
+// Tudo passa por um AudioContext (e não por um <audio> solto) por três motivos:
+// dá para abaixar o volume durante o vídeo do personagem (ducking), dá para fazer
+// crossfade entre faixas, e o áudio entra na gravação do botão de download.
+//
+//   slot.gain ──┐
+//   slot.gain ──┴─> duck ─> master ─┬─> alto-falantes
+//                                   └─> MediaStreamDestination (gravação)
+const SS_AUDIO_KEY = 'niro:chars:ss-audio';
+const SS_FADE_AUDIO = 1.2;   // crossfade entre faixas, em segundos
+
+const ssAudio = {
+  ctx: null, master: null, duck: null, dest: null, videoGain: null,
+  slots: [], atual: -1,
+  modo: 'auto', fixa: null, grupo: null,
+  volume: 0.7, mudo: false,
+  // vêm do módulo Trilhas (ficam no banco, então valem também no celular)
+  duckNivel: 0.15, somVideo: true,
+};
+
+// Ajustes do módulo Trilhas. Falha silenciosa: sem eles o slideshow usa os padrões.
+async function ssCarregarAjustes() {
+  try {
+    const cfg = await api('/api/tracks/settings');
+    ssAudio.duckNivel = cfg.duck;
+    ssAudio.somVideo = !!cfg.video_sound;
+    if (!ssAudio.volumeLocal) ssAudio.volume = cfg.volume;
+  } catch (_) { /* mantém os padrões */ }
+}
+
+function ssAudioCarregarPrefs() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem(SS_AUDIO_KEY));
+    if (salvo) {
+      if (typeof salvo.volume === 'number') { ssAudio.volume = salvo.volume; ssAudio.volumeLocal = true; }
+      if (typeof salvo.mudo === 'boolean') ssAudio.mudo = salvo.mudo;
+      if (salvo.modo) ssAudio.modo = salvo.modo;
+    }
+  } catch (_) { /* storage indisponível */ }
+}
+
+function ssAudioSalvarPrefs() {
+  try {
+    localStorage.setItem(SS_AUDIO_KEY,
+      JSON.stringify({ volume: ssAudio.volume, mudo: ssAudio.mudo, modo: ssAudio.modo }));
+  } catch (_) { /* storage indisponível */ }
+}
+
+function ssAudioIniciar() {
+  // O contexto é criado mesmo sem trilha: é por ele que o som dos vídeos entra
+  // na gravação do download.
+  if (ssAudio.ctx) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  ssAudio.ctx = new Ctx();
+  ssAudio.master = ssAudio.ctx.createGain();
+  ssAudio.master.gain.value = ssAudio.mudo ? 0 : ssAudio.volume;
+  ssAudio.duck = ssAudio.ctx.createGain();
+  ssAudio.duck.gain.value = 1;
+  ssAudio.duck.connect(ssAudio.master);
+  ssAudio.master.connect(ssAudio.ctx.destination);
+  ssAudio.dest = ssAudio.ctx.createMediaStreamDestination();
+  ssAudio.master.connect(ssAudio.dest);
+
+  // O som próprio dos vídeos não passa pelo volume nem pelo ducking da trilha:
+  // quem recua é a música, o vídeo continua no nível dele.
+  ssAudio.videoGain = ssAudio.ctx.createGain();
+  ssAudio.videoGain.gain.value = 1;
+  ssAudio.videoGain.connect(ssAudio.ctx.destination);
+  ssAudio.videoGain.connect(ssAudio.dest);
+
+  // dois slots alternados: enquanto um sobe, o outro desce (crossfade)
+  ssAudio.slots = [0, 1].map(() => {
+    const el = document.createElement('audio');
+    el.loop = true;
+    el.preload = 'auto';
+    el.crossOrigin = 'anonymous';
+    ss.pool.appendChild(el);
+    const gain = ssAudio.ctx.createGain();
+    gain.gain.value = 0;
+    ssAudio.ctx.createMediaElementSource(el).connect(gain);
+    gain.connect(ssAudio.duck);
+    return { el, gain };
+  });
+  ssAudio.atual = -1;
+  ssAudio.grupo = null;
+  ssAudioResumir();
+}
+
+// Liga o áudio de um <video> ao grafo, para ele sair nos alto-falantes e também
+// na gravação. Um elemento só pode ser ligado uma vez.
+function ssConectarVideo(el) {
+  if (!ssAudio.ctx || !el || el.tagName !== 'VIDEO' || el.dataset.ligado) return;
+  try {
+    ssAudio.ctx.createMediaElementSource(el).connect(ssAudio.videoGain);
+    el.dataset.ligado = '1';
+  } catch (_) { /* já estava ligado */ }
+}
+
+function ssAudioResumir() {
+  if (ssAudio.ctx && ssAudio.ctx.state === 'suspended') {
+    ssAudio.ctx.resume().catch(() => { /* precisa de um toque do usuário */ });
+  }
+  ssAtualizarBotaoSom();
+}
+
+function ssSorteio(lista) {
+  return lista[Math.floor(Math.random() * lista.length)];
+}
+
+// Qual faixa combina com este personagem, e a que grupo ela pertence.
+// O grupo evita trocar de música a cada personagem: só troca quando muda o
+// elemento (ou a região) do bloco que está passando.
+function ssFaixaPara(c) {
+  if (!allTracks.length || ssAudio.modo === 'none') return null;
+  if (ssAudio.modo === 'fixa') {
+    return ssAudio.fixa ? { grupo: `f:${ssAudio.fixa.id}`, faixa: ssAudio.fixa } : null;
+  }
+  if (ssAudio.modo === 'auto') {
+    const doElemento = allTracks.filter((t) => t.scope === 'element' && t.ref_name === c.element.name);
+    if (doElemento.length) return { grupo: `e:${c.element.name}`, faixa: ssSorteio(doElemento) };
+    const daRegiao = allTracks.filter((t) => t.scope === 'region' && t.ref_name === c.region.name);
+    if (daRegiao.length) return { grupo: `r:${c.region.name}`, faixa: ssSorteio(daRegiao) };
+  }
+  return { grupo: 'aleatorio', faixa: ssSorteio(allTracks) };
+}
+
+function ssAudioTocar(faixa) {
+  if (!ssAudio.ctx || !faixa) return;
+  const proximo = (ssAudio.atual + 1) % 2;
+  const slot = ssAudio.slots[proximo];
+  slot.el.src = faixa.url;
+  slot.el.play().catch(() => { /* liberado no primeiro toque */ });
+
+  const agora = ssAudio.ctx.currentTime;
+  const subir = slot.gain.gain;
+  subir.cancelScheduledValues(agora);
+  subir.setValueAtTime(subir.value, agora);
+  subir.linearRampToValueAtTime(1, agora + SS_FADE_AUDIO);
+
+  if (ssAudio.atual >= 0) {
+    const anterior = ssAudio.slots[ssAudio.atual];
+    const descer = anterior.gain.gain;
+    descer.cancelScheduledValues(agora);
+    descer.setValueAtTime(descer.value, agora);
+    descer.linearRampToValueAtTime(0, agora + SS_FADE_AUDIO);
+    setTimeout(() => anterior.el.pause(), SS_FADE_AUDIO * 1000 + 200);
+  }
+  ssAudio.atual = proximo;
+}
+
+// Chamado a cada troca de personagem.
+function ssAudioAcompanhar(c) {
+  if (!ssAudio.ctx) return;
+  const escolha = ssFaixaPara(c);
+  if (!escolha) return;
+  if (escolha.grupo === ssAudio.grupo) return;   // mesmo bloco: mantém a música
+  ssAudio.grupo = escolha.grupo;
+  ssAudioTocar(escolha.faixa);
+}
+
+// Abaixa a trilha enquanto o vídeo do personagem toca e devolve o volume depois.
+function ssAudioDuck(abaixar) {
+  if (!ssAudio.ctx) return;
+  const agora = ssAudio.ctx.currentTime;
+  const g = ssAudio.duck.gain;
+  g.cancelScheduledValues(agora);
+  g.setValueAtTime(g.value, agora);
+  g.linearRampToValueAtTime(abaixar ? ssAudio.duckNivel : 1, agora + 0.4);
+}
+
+function ssAudioVolume() {
+  if (!ssAudio.ctx) return;
+  const agora = ssAudio.ctx.currentTime;
+  ssAudio.master.gain.cancelScheduledValues(agora);
+  ssAudio.master.gain.setValueAtTime(ssAudio.master.gain.value, agora);
+  ssAudio.master.gain.linearRampToValueAtTime(ssAudio.mudo ? 0 : ssAudio.volume, agora + 0.15);
+}
+
+function ssAudioPausar(pausado) {
+  ssAudio.slots.forEach((s, i) => {
+    if (i !== ssAudio.atual) return;
+    if (pausado) s.el.pause();
+    else s.el.play().catch(() => { /* liberado no primeiro toque */ });
+  });
+}
+
+function ssAudioEncerrar() {
+  if (!ssAudio.ctx) return;
+  const ctx = ssAudio.ctx;
+  const agora = ctx.currentTime;
+  ssAudio.master.gain.cancelScheduledValues(agora);
+  ssAudio.master.gain.setValueAtTime(ssAudio.master.gain.value, agora);
+  ssAudio.master.gain.linearRampToValueAtTime(0, agora + 0.6);   // fade out ao fechar
+  ssAudio.slots.forEach((s) => { try { s.el.pause(); } catch (_) { /* já parado */ } });
+  setTimeout(() => ctx.close().catch(() => { /* já fechado */ }), 700);
+  ssAudio.ctx = null;
+  ssAudio.slots = [];
+  ssAudio.atual = -1;
+  ssAudio.grupo = null;
 }
 
 // ---------------------------------------------------------------- estado do palco
@@ -392,8 +615,9 @@ function ssMediaFor(i) {
     el.src = src;
   } else {
     el = document.createElement('video');
-    el.muted = true;
-    el.defaultMuted = true;
+    // O vídeo do personagem tem som próprio; quem recua é a trilha.
+    el.muted = !ssAudio.somVideo;
+    el.defaultMuted = el.muted;
     el.loop = false;
     el.playsInline = true;
     el.setAttribute('playsinline', '');
@@ -403,6 +627,7 @@ function ssMediaFor(i) {
     el.load();
   }
   ss.pool.appendChild(el);
+  ssConectarVideo(el);
   ss.videos.set(i, el);
   return el;
 }
@@ -573,6 +798,8 @@ function ssGoTo(i, { restartMedia = true } = {}) {
   ss.phase = 'card';
   ss.phaseStart = ssNow();
   if (restartMedia) ssPreload();
+  ssAudioAcompanhar(ss.list[ss.idx]);
+  ssAudioDuck(false);
   ssUpdateBar();
 }
 
@@ -593,10 +820,18 @@ function ssStartMedia() {
   ss.media = el;
   ss.mediaStarted = 0;
   ss.phase = 'media';
+  ssAudioDuck(true);   // a trilha recua para o vídeo do personagem aparecer
   ss.phaseStart = ssNow();
   if (el.tagName === 'VIDEO') {
     try { el.currentTime = 0; } catch (_) { /* ainda sem metadata */ }
-    el.play().then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
+    el.muted = !ssAudio.somVideo;
+    el.play().then(() => { ss.mediaStarted = 1; }).catch(() => {
+      // alguns navegadores recusam tocar com som sem gesto do usuário:
+      // em vez de pular o vídeo, toca mudo.
+      if (el.muted) return;
+      el.muted = true;
+      el.play().then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
+    });
   } else {
     ss.mediaStarted = 1;
   }
@@ -654,6 +889,8 @@ const SS_ICONS = {
   down: '<svg viewBox="0 0 24 24"><path d="M12 3v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L10 12.2V3zM4 19h16v2H4z" fill="currentColor"/></svg>',
   cast: '<svg viewBox="0 0 24 24"><path d="M3 5h18v11h-6v-2h4V7H5v2H3zm0 6a7 7 0 0 1 7 7H8a5 5 0 0 0-5-5zm0 4a3 3 0 0 1 3 3H4a1 1 0 0 0-1-1z" fill="currentColor"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7l1.4-1.4L10.6 10.6l6.3-6.3z" fill="currentColor"/></svg>',
+  som: '<svg viewBox="0 0 24 24"><path d="M4 9h3l5-4v14l-5-4H4zm12.5-.5a5 5 0 0 1 0 7l1.4 1.4a7 7 0 0 0 0-9.8z" fill="currentColor"/></svg>',
+  mudo: '<svg viewBox="0 0 24 24"><path d="M4 9h3l5-4v14l-5-4H4zm13.7-1.3 1.4 1.4L17.4 12l1.7 1.9-1.4 1.4L16 13.4l-1.7 1.9-1.4-1.4L14.6 12l-1.7-1.9 1.4-1.4L16 10.6z" fill="currentColor"/></svg>',
 };
 
 function ssStart(list, f, order) {
@@ -680,6 +917,10 @@ function ssStart(list, f, order) {
           <button type="button" class="ss-btn" data-act="prev" title="Anterior">${SS_ICONS.prev}</button>
           <button type="button" class="ss-btn" data-act="toggle" title="Pausar">${SS_ICONS.pause}</button>
           <button type="button" class="ss-btn" data-act="next" title="Próximo">${SS_ICONS.next}</button>
+          <span class="ss-sep"></span>
+          <button type="button" class="ss-btn" data-act="som" title="Silenciar a trilha">${SS_ICONS.som}</button>
+          <input type="range" class="ss-vol" min="0" max="100" step="1" value="70"
+                 aria-label="Volume da trilha" title="Volume da trilha">
           <span class="ss-sep"></span>
           <button type="button" class="ss-btn" data-act="full" title="Tela cheia">${SS_ICONS.full}</button>
           <button type="button" class="ss-btn" data-act="download" title="Baixar o slideshow em vídeo">${SS_ICONS.down}</button>
@@ -710,22 +951,37 @@ function ssStart(list, f, order) {
     btn.addEventListener('click', () => ssAction(btn.dataset.act));
   });
   overlay.querySelector('.ss-stage').addEventListener('click', () => ssAction('toggle'));
+  const volume = overlay.querySelector('.ss-vol');
+  volume.value = Math.round(ssAudio.volume * 100);
+  volume.addEventListener('input', function () {
+    ssAudio.volume = this.value / 100;
+    ssAudio.mudo = false;
+    ssAudioVolume();
+    ssAudioSalvarPrefs();
+    ssAtualizarBotaoSom();
+  });
+  // qualquer toque no palco serve de gesto para o navegador liberar o áudio
+  overlay.addEventListener('pointerdown', ssAudioResumir);
   document.addEventListener('keydown', ssKeys);
 
   // iOS só libera o play de vídeo dentro de um gesto: destrava aqui, no clique
   // que abriu o slideshow, os elementos já criados.
+  ssAudioIniciar();
   ssGoTo(0);
   ss.videos.forEach((el) => {
     if (el.tagName !== 'VIDEO') return;
+    el.muted = true;                       // o aquecimento é silencioso
     const p = el.play();
     if (p && p.then) p.then(() => el.pause()).catch(() => { /* destrava no play seguinte */ });
   });
+  ssAudioAcompanhar(ss.list[0]);
   ss.raf = requestAnimationFrame(ssFrame);
 }
 
 function ssClose() {
   if (!ss.open) return;
   ss.open = false;
+  ssAudioEncerrar();
   cancelAnimationFrame(ss.raf);
   if (ss.rec && ss.rec.state !== 'inactive') { try { ss.rec.stop(); } catch (_) { /* já parado */ } }
   ss.rec = null;
@@ -756,7 +1012,54 @@ function ssAction(act) {
   else if (act === 'download') ssAskDownload();
   else if (act === 'cast') ssOpenCastModal();
   else if (act === 'stop-rec') ssStopRecording();
+  else if (act === 'som') ssAlternarSom();
   else if (act === 'close') ssClose();
+}
+
+function ssAlternarSom() {
+  ssAudio.mudo = !ssAudio.mudo;
+  ssAudioVolume();
+  ssAudioSalvarPrefs();
+  ssAtualizarBotaoSom();
+}
+
+// O navegador só libera som depois de um gesto. Quando o slideshow abre sozinho
+// (link com ?show=1), o botão fica marcado e o primeiro toque destrava.
+function ssAtualizarBotaoSom() {
+  if (!ss.overlay) return;
+  const btn = ss.overlay.querySelector('[data-act="som"]');
+  if (!btn) return;
+  const semTrilha = ssAudio.modo === 'none' || !allTracks.length;
+  btn.hidden = semTrilha;
+  const vol = ss.overlay.querySelector('.ss-vol');
+  if (vol) vol.hidden = semTrilha;
+  const travado = ssAudio.ctx && ssAudio.ctx.state === 'suspended';
+  btn.classList.toggle('alerta', !!travado);
+  // Só troca o ícone quando ele realmente muda: reescrever o conteúdo do botão
+  // entre o pointerdown e o mouseup cancela o clique do usuário.
+  const icone = (ssAudio.mudo || travado) ? 'mudo' : 'som';
+  if (btn.dataset.icone !== icone) {
+    btn.innerHTML = SS_ICONS[icone];
+    btn.dataset.icone = icone;
+  }
+  btn.title = travado ? 'Toque para ativar o som'
+    : (ssAudio.mudo ? 'Ativar a trilha' : 'Silenciar a trilha');
+}
+
+// Traduz a escolha do modal ('auto' | 'random' | 'none' | id da faixa) para o motor.
+function ssAplicarTrilha(valor) {
+  if (valor === 'auto' || valor === 'none') {
+    ssAudio.modo = valor;
+    ssAudio.fixa = null;
+  } else if (valor === 'random') {
+    ssAudio.modo = 'random';
+    ssAudio.fixa = null;
+  } else {
+    ssAudio.fixa = allTracks.find((t) => String(t.id) === String(valor)) || null;
+    ssAudio.modo = ssAudio.fixa ? 'fixa' : 'auto';
+  }
+  ssAudio.grupo = null;
+  ssAudioSalvarPrefs();
 }
 
 function ssTogglePause() {
@@ -765,11 +1068,13 @@ function ssTogglePause() {
   if (ss.paused) {
     ss.pausedAt = ssNow();
     if (ss.media && ss.media.tagName === 'VIDEO') ss.media.pause();
+    ssAudioPausar(true);
     btn.innerHTML = SS_ICONS.play;
     btn.title = 'Continuar';
   } else {
     ss.phaseStart += ssNow() - ss.pausedAt;
     if (ss.media && ss.media.tagName === 'VIDEO') ss.media.play().catch(() => { /* segue pelo timeout */ });
+    ssAudioPausar(false);
     btn.innerHTML = SS_ICONS.pause;
     btn.title = 'Pausar';
   }
@@ -778,6 +1083,7 @@ function ssTogglePause() {
 function ssUpdateBar() {
   if (!ss.overlay) return;
   const c = ss.list[ss.idx];
+  ssAtualizarBotaoSom();
   ss.overlay.querySelector('.ss-meta').textContent =
     `${ss.idx + 1}/${ss.list.length} · ${c.name}${c.demo_video ? '' : ' · sem vídeo'}`;
   ssUpdateProgress();
@@ -861,6 +1167,8 @@ function ssAskDownload() {
 
 function ssStartRecording(mime) {
   const stream = ss.canvas.captureStream(30);
+  // o vídeo vem do canvas e o áudio do AudioContext: juntos no mesmo arquivo
+  if (ssAudio.dest) ssAudio.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
   let rec;
   try {
     rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 });
@@ -916,6 +1224,8 @@ function ssShareUrl() {
   url.searchParams.set('show', '1');
   Object.entries(ss.filters).forEach(([k, v]) => { if (v) url.searchParams.set(k, v); });
   url.searchParams.set('order', ss.order);
+  url.searchParams.set('trilha',
+    ssAudio.modo === 'fixa' && ssAudio.fixa ? String(ssAudio.fixa.id) : ssAudio.modo);
   return url.toString();
 }
 
@@ -1007,5 +1317,7 @@ function maybeAutoSlideshow() {
   const order = params.get('order') || 'alpha';
   const list = ssSelect(allChars, f, order);
   if (!list.length) { toast('Nenhum personagem atende aos filtros do link.', 'error'); return; }
+  ssAudioCarregarPrefs();
+  ssAplicarTrilha(params.get('trilha') || ssAudio.modo);
   ssStart(list, f, order);
 }

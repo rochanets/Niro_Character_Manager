@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS characters (
     archived_at    TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS tracks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    file        TEXT NOT NULL,
+    scope       TEXT NOT NULL DEFAULT 'geral' CHECK (scope IN ('element', 'region', 'geral')),
+    ref_name    TEXT,
+    credit      TEXT,
+    archived    INTEGER NOT NULL DEFAULT 0,
+    archived_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS versions (
     major INTEGER PRIMARY KEY,
     name  TEXT NOT NULL
@@ -204,7 +215,7 @@ def _migrate_banners_special_half(conn):
 
 
 def init_db():
-    for sub in ("characters", "elements", "weapons", "reactions"):
+    for sub in ("characters", "elements", "weapons", "reactions", "tracks"):
         os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
     conn = get_db()
     conn.executescript(SCHEMA)
@@ -243,9 +254,21 @@ def purge_expired_archive():
         for rel in (row["card_full"], row["card_promo"], row["demo_video"]):
             delete_upload(rel)
         conn.execute("DELETE FROM characters WHERE id = ?", (row["id"],))
+
+    # Trilhas seguem a mesma regra dos personagens: excluir manda para a lixeira
+    # e só depois de 30 dias o arquivo some de vez.
+    trilhas = conn.execute(
+        "SELECT id, file FROM tracks "
+        "WHERE archived = 1 AND archived_at IS NOT NULL AND archived_at < ?",
+        (cutoff,),
+    ).fetchall()
+    for row in trilhas:
+        delete_upload(row["file"])
+        conn.execute("DELETE FROM tracks WHERE id = ?", (row["id"],))
+
     conn.commit()
     conn.close()
-    return len(rows)
+    return len(rows) + len(trilhas)
 
 
 def delete_upload(rel_path):

@@ -1301,3 +1301,66 @@ body.ss-lock { overflow: hidden; }
   .ss-meta { width: 100%; text-align: center; }
   .ss-btn { width: 44px; height: 44px; }
 }
+
+/* ============================================================
+   Módulo Trilhas
+   ============================================================ */
+
+.drop-zone {
+  padding: 26px; border-radius: var(--radius); text-align: center; cursor: pointer;
+  border: 1.5px dashed var(--glass-border); margin-bottom: 18px;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: rgba(90, 215, 232, 0.6); background: rgba(90, 215, 232, 0.07);
+}
+.drop-zone .dz-icon { font-size: 28px; color: var(--accent-2); margin-bottom: 8px; }
+.drop-zone .ii-hint { margin-top: 6px; }
+.drop-zone code {
+  background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 5px;
+  font-size: 12px; color: var(--accent);
+}
+
+.track-list { display: flex; flex-direction: column; gap: 8px; }
+.track-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--glass); border: 1px solid var(--glass-border-soft);
+  flex-wrap: wrap;
+}
+.tk-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px; }
+.tk-name { font-weight: 600; font-size: 13.5px; min-width: 110px; }
+.track-row audio { height: 34px; max-width: 320px; flex: 1; }
+.tk-actions { display: flex; align-items: center; gap: 8px; }
+.tk-actions select { width: auto; min-width: 118px; padding: 7px 10px; font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  .track-row { flex-direction: column; align-items: stretch; }
+  .tk-main { flex-direction: column; align-items: stretch; gap: 6px; }
+  .track-row audio { max-width: 100%; width: 100%; }
+  .tk-actions { justify-content: space-between; }
+}
+
+/* controle de volume da trilha, na barra do slideshow */
+.ss-vol {
+  width: 90px; height: 4px; padding: 0; cursor: pointer;
+  accent-color: var(--accent); background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px; border: none; appearance: none; -webkit-appearance: none;
+}
+.ss-vol::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--accent); border: none; cursor: pointer;
+}
+.ss-vol::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--accent); border: none; cursor: pointer;
+}
+/* som bloqueado pelo navegador: chama atenção até o primeiro toque */
+.ss-btn.alerta {
+  border-color: rgba(224, 180, 92, 0.65); color: var(--gold);
+  animation: ss-som-pisca 1.6s ease-in-out infinite;
+}
+@keyframes ss-som-pisca { 50% { box-shadow: 0 0 14px rgba(224, 180, 92, 0.5); } }
+
+@media (max-width: 760px) { .ss-vol { width: 70px; } }

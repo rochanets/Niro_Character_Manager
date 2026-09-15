@@ -407,49 +407,10 @@ scipy.io.wavfile.write("teste.wav", rate=saida["sampling_rate"], data=audio)
 Audio("teste.wav")
 ```
 
-### 4. Gerar tudo em lote (cole o dicionário `TEMAS` de baixo)
+### 4. Geração em lote — ELEMENTOS
 
-```python
-import os, numpy as np, scipy.io.wavfile
-
-TEMAS = {
-    # cole aqui um dos dicionários da seção seguinte
-}
-
-os.makedirs("trilhas", exist_ok=True)
-
-for nome, p in TEMAS.items():
-    print("Gerando:", nome)
-    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
-    audio = np.squeeze(saida["audio"])
-    if audio.ndim > 1:
-        audio = audio.T
-    scipy.io.wavfile.write(f"trilhas/{nome}.wav", rate=saida["sampling_rate"], data=audio)
-    os.system(
-        f"ffmpeg -y -loglevel error -i trilhas/{nome}.wav "
-        f"-af loudnorm=I=-16:TP=-1.5:LRA=11 -b:a 160k trilhas/{nome}.mp3"
-    )
-    os.remove(f"trilhas/{nome}.wav")
-
-print("Pronto.")
-```
-
-### 5. Baixar tudo
-
-```python
-!zip -qr trilhas.zip trilhas
-from google.colab import files
-files.download("trilhas.zip")
-```
-
-> **Erros comuns.** `IndexError: too many indices` significa que o áudio veio em
-> 1 dimensão — é o que o `np.squeeze` das células acima já resolve. O aviso
-> amarelo sobre `generation_config` é inofensivo, pode ignorar.
-
-# Dicionários de prompts para a célula 4
-
-Cole no lugar do dicionário `TEMAS` da célula em lote. Rode primeiro só os
-elementos; depois troque pelo bloco das regiões.
+Cole a célula inteira (dicionário + laço) e rode. São 15 faixas, ~10 a 15
+minutos no total. O progresso aparece embaixo da célula, um nome por vez.
 
 ```python
 TEMAS = {
@@ -469,30 +430,93 @@ TEMAS = {
     "aero_2":    "gentle pastoral instrumental, solo flute over warm strings, soft acoustic guitar, calm and open, morning breeze, 90 BPM, minimal percussion, no vocals",
     "aero_3":    "fast orchestral chase instrumental, rapid string ostinato, urgent woodwinds, driving light percussion, swirling and unpredictable, gale winds, 145 BPM, no vocals",
 }
+
+import os, numpy as np, scipy.io.wavfile
+
+os.makedirs("trilhas", exist_ok=True)
+
+for nome, p in TEMAS.items():
+    print("Gerando:", nome)
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
+    audio = np.squeeze(saida["audio"])
+    if audio.ndim > 1:
+        audio = audio.T
+    scipy.io.wavfile.write(f"trilhas/{nome}.wav", rate=saida["sampling_rate"], data=audio)
+    os.system(
+        f"ffmpeg -y -loglevel error -i trilhas/{nome}.wav "
+        f"-af loudnorm=I=-16:TP=-1.5:LRA=11 -b:a 160k trilhas/{nome}.mp3"
+    )
+    os.remove(f"trilhas/{nome}.wav")
+
+print("Pronto. Arquivos em trilhas/")
 ```
+
+### 5. Geração em lote — REGIÕES
+
+Mesma coisa para as regiões: 18 faixas, ~12 a 18 minutos. **Renomeie as chaves**
+(`cidadela_1`, `gelo_1`…) para os nomes das suas regiões antes de rodar, e ajuste
+o bioma/instrumento no texto quando fizer sentido.
 
 ```python
 TEMAS = {
-    "cidadela_1":  "noble orchestral instrumental, heroic french horns, full string section, timpani and cymbal swells, proud and ceremonial, royal capital, 100 BPM, no vocals",
-    "cidadela_2":  "warm medieval city instrumental, lute and hurdy gurdy, tambourine, fiddle melody, bustling and welcoming, market square, 115 BPM, no vocals",
-    "cidadela_3":  "epic sacred orchestral instrumental, full latin style choir singing wordless vowels, cathedral reverb, brass chorale and pipe organ, solemn and monumental, 80 BPM",
-    "gelo_1":      "cold ambient orchestral instrumental, sustained high strings, low drone, sparse piano notes, icy and desolate, frozen wasteland, 60 BPM, no percussion, no vocals",
-    "gelo_2":      "somber marching instrumental, low male wordless chant, heavy drums, bowed cellos, cold and relentless, warriors crossing the ice, 95 BPM",
-    "gelo_3":      "mournful sacred instrumental, distant latin style choir on sustained vowels, solo cello, deep drone, frozen cathedral atmosphere, grieving and vast, 65 BPM",
-    "floresta_1":  "mystical forest ambient instrumental, wooden flute, soft nylon guitar, nature textures, gentle strings, ancient and alive, 75 BPM, no vocals",
-    "floresta_2":  "tribal ritual instrumental, frame drums and shakers, low wooden flute, layered wordless chanting, primal and hypnotic, 105 BPM",
-    "floresta_3":  "sacred nature instrumental, soft latin style female choir on open vowels, harp and low strings, forest reverb, reverent and ancient, 70 BPM",
-    "deserto_1":   "arid desert instrumental, duduk and oud, sparse frame drum, shimmering heat pads, lonely and endless, sun scorched dunes, 80 BPM, no vocals",
-    "deserto_2":   "exotic rhythmic instrumental, darbuka and riq percussion, oud melody, low strings drone, traveling and determined, 120 BPM, no vocals",
-    "deserto_3":   "ancient ruins instrumental, distant latin style choir on long vowels, low drone, sparse metallic percussion, haunting and forgotten, buried civilization, 70 BPM",
-    "costa_1":     "coastal folk instrumental, acoustic guitar and accordion, soft fiddle, gentle wave textures, salty and welcoming, harbor at sunset, 95 BPM, no vocals",
-    "costa_2":     "adventurous sea instrumental, sweeping strings, bold brass, rolling snare, hopeful and expansive, ship leaving port, 125 BPM, no vocals",
-    "costa_3":     "melancholic maritime instrumental, low male latin style choir on sustained vowels, creaking ship textures, solo violin, deep water reverb, mournful, 70 BPM",
-    "sombrias_1":  "dark ominous instrumental, low brass drones, dissonant string clusters, sparse deep drums, oppressive and dreadful, cursed land, 60 BPM, no vocals",
-    "sombrias_2":  "dark orchestral action instrumental, aggressive low strings ostinato, pounding taiko, brass hits, urgent and threatening, 140 BPM, no vocals",
-    "sombrias_3":  "sinister sacred instrumental, dark latin style male choir chanting on low vowels, pipe organ, deep drums, church ruins reverb, ominous and ritualistic, 75 BPM",
+    "cidadela_1": "noble orchestral instrumental, heroic french horns, full string section, timpani and cymbal swells, proud and ceremonial, royal capital, 100 BPM, no vocals",
+    "cidadela_2": "warm medieval city instrumental, lute and hurdy gurdy, tambourine, fiddle melody, bustling and welcoming, market square, 115 BPM, no vocals",
+    "cidadela_3": "epic sacred orchestral instrumental, full latin style choir singing wordless vowels, cathedral reverb, brass chorale and pipe organ, solemn and monumental, 80 BPM",
+    "gelo_1":     "cold ambient orchestral instrumental, sustained high strings, low drone, sparse piano notes, icy and desolate, frozen wasteland, 60 BPM, no percussion, no vocals",
+    "gelo_2":     "somber marching instrumental, low male wordless chant, heavy drums, bowed cellos, cold and relentless, warriors crossing the ice, 95 BPM",
+    "gelo_3":     "mournful sacred instrumental, distant latin style choir on sustained vowels, solo cello, deep drone, frozen cathedral atmosphere, grieving and vast, 65 BPM",
+    "floresta_1": "mystical forest ambient instrumental, wooden flute, soft nylon guitar, nature textures, gentle strings, ancient and alive, 75 BPM, no vocals",
+    "floresta_2": "tribal ritual instrumental, frame drums and shakers, low wooden flute, layered wordless chanting, primal and hypnotic, 105 BPM",
+    "floresta_3": "sacred nature instrumental, soft latin style female choir on open vowels, harp and low strings, forest reverb, reverent and ancient, 70 BPM",
+    "deserto_1":  "arid desert instrumental, duduk and oud, sparse frame drum, shimmering heat pads, lonely and endless, sun scorched dunes, 80 BPM, no vocals",
+    "deserto_2":  "exotic rhythmic instrumental, darbuka and riq percussion, oud melody, low strings drone, traveling and determined, 120 BPM, no vocals",
+    "deserto_3":  "ancient ruins instrumental, distant latin style choir on long vowels, low drone, sparse metallic percussion, haunting and forgotten, buried civilization, 70 BPM",
+    "costa_1":    "coastal folk instrumental, acoustic guitar and accordion, soft fiddle, gentle wave textures, salty and welcoming, harbor at sunset, 95 BPM, no vocals",
+    "costa_2":    "adventurous sea instrumental, sweeping strings, bold brass, rolling snare, hopeful and expansive, ship leaving port, 125 BPM, no vocals",
+    "costa_3":    "melancholic maritime instrumental, low male latin style choir on sustained vowels, creaking ship textures, solo violin, deep water reverb, mournful, 70 BPM",
+    "sombrias_1": "dark ominous instrumental, low brass drones, dissonant string clusters, sparse deep drums, oppressive and dreadful, cursed land, 60 BPM, no vocals",
+    "sombrias_2": "dark orchestral action instrumental, aggressive low strings ostinato, pounding taiko, brass hits, urgent and threatening, 140 BPM, no vocals",
+    "sombrias_3": "sinister sacred instrumental, dark latin style male choir chanting on low vowels, pipe organ, deep drums, church ruins reverb, ominous and ritualistic, 75 BPM",
 }
+
+import os, numpy as np, scipy.io.wavfile
+
+os.makedirs("trilhas", exist_ok=True)
+
+for nome, p in TEMAS.items():
+    print("Gerando:", nome)
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
+    audio = np.squeeze(saida["audio"])
+    if audio.ndim > 1:
+        audio = audio.T
+    scipy.io.wavfile.write(f"trilhas/{nome}.wav", rate=saida["sampling_rate"], data=audio)
+    os.system(
+        f"ffmpeg -y -loglevel error -i trilhas/{nome}.wav "
+        f"-af loudnorm=I=-16:TP=-1.5:LRA=11 -b:a 160k trilhas/{nome}.mp3"
+    )
+    os.remove(f"trilhas/{nome}.wav")
+
+print("Pronto. Arquivos em trilhas/")
 ```
+
+### 6. Baixar tudo
+
+```python
+!zip -qr trilhas.zip trilhas
+from google.colab import files
+files.download("trilhas.zip")
+```
+
+Se o navegador bloquear o download, clique no ícone de **pasta** na barra
+lateral esquerda do Colab, abra `trilhas` e baixe pelos três pontinhos de cada
+arquivo.
+
+> **Erros comuns.** `IndexError: too many indices` significa que o áudio veio em
+> 1 dimensão — é o que o `np.squeeze` das células acima já resolve. O aviso
+> amarelo sobre `generation_config` é inofensivo, pode ignorar. Se a sessão cair
+> no meio do lote, rode de novo a célula 2 (carregar o modelo) antes de repetir
+> a do lote — os arquivos já gerados continuam em `trilhas/` e serão
+> sobrescritos sem problema.
 
 ---
 

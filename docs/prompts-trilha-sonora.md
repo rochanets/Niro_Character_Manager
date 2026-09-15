@@ -697,6 +697,49 @@ arquivo.
 
 ---
 
+---
+
+# Faixas mais longas que 30 segundos
+
+`max_new_tokens` controla a duração — o MusicGen gera 50 tokens por segundo de
+áudio:
+
+| `max_new_tokens` | Duração |
+|---|---|
+| 1500 | ~30s |
+| 3000 | ~1 min |
+| 4500 | ~1min30 |
+| 6000 | ~2 min |
+
+**O modelo foi treinado com trechos de 30 segundos.** Além disso ele continua
+gerando, mas vai perdendo o rumo: repete demais, muda de ideia, às vezes desmancha
+a melodia. Até ~1 minuto costuma segurar bem; acima de 2 minutos a chance de sair
+algo estranho é alta. O tempo de geração também é proporcional — faixas de 1
+minuto dobram o tempo do lote.
+
+## Alternativa melhor: esticar por repetição
+
+Instantâneo e sem perda de qualidade, já que a trilha toca em loop por baixo do
+slideshow de qualquer forma:
+
+```python
+import os, glob
+
+for caminho in glob.glob("trilhas/*.mp3"):
+    if caminho.endswith("_longo.mp3"):
+        continue
+    destino = caminho.replace(".mp3", "_longo.mp3")
+    os.system(f"ffmpeg -y -loglevel error -stream_loop 5 -i {caminho} -b:a 160k {destino}")
+
+print("Pronto.")
+```
+
+`-stream_loop 5` repete 6 vezes: 30s viram 3 minutos.
+
+> Como há **3 faixas por elemento**, o player do slideshow pode alternar entre
+> elas em vez de repetir a mesma — 30s × 3 já dão 1min30 de variação real. Por
+> isso o padrão de 1500 tokens costuma bastar.
+
 # Vocabulário para você criar os seus
 
 Trocando uma ou duas palavras dessas listas, o prompt vira outra coisa. Tudo em

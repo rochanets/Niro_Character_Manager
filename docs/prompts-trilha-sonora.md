@@ -19,8 +19,9 @@ Prompts prontos para gerar a trilha do slideshow do módulo Chars no MusicGen
 2. Copie o prompt, cole no lugar do `prompt = "..."` e rode.
 3. **Gere de 2 a 3 vezes o mesmo prompt** — cada execução sai diferente, e a
    terceira costuma ser a boa.
-4. `max_new_tokens=3000` ≈ 1 minuto de música, que é o padrão adotado aqui.
-   Para faixas de 30s (metade do tempo de geração), use `1500`.
+4. `max_new_tokens=1500` ≈ 30 segundos, que é o máximo seguro do modelo (veja
+   "Duração das faixas" no fim deste guia). Faixas mais longas se fazem
+   repetindo o arquivo, não pedindo mais tokens.
 5. No fim, normalize o volume de todas as faixas no mesmo nível (o comando de
    `ffmpeg` com `loudnorm` já está na célula em lote) — senão o slideshow dá um
    solavanco de volume a cada troca de bloco.
@@ -553,7 +554,7 @@ from IPython.display import Audio
 
 prompt = "ethereal fantasy instrumental, celesta and harp, breathy choir, whimsical, 85 BPM, no vocals"
 
-saida = gerador(prompt, forward_params={"do_sample": True, "max_new_tokens": 3000})
+saida = gerador(prompt, forward_params={"do_sample": True, "max_new_tokens": 1500})
 
 audio = np.squeeze(saida["audio"])
 if audio.ndim > 1:
@@ -565,8 +566,8 @@ Audio("teste.wav")
 
 ### 4. Geração em lote — ELEMENTOS
 
-Cole a célula inteira (dicionário + laço) e rode. São 36 faixas de ~1 minuto,
-o que dá **de 50 minutos a 1h15** no total. O progresso aparece embaixo da
+Cole a célula inteira (dicionário + laço) e rode. São 36 faixas, **~25 a 35
+minutos** no total. O progresso aparece embaixo da
 célula, um nome por vez.
 
 > A sessão grátis do Colab derruba o notebook depois de um tempo ocioso — deixe
@@ -619,7 +620,7 @@ os.makedirs("trilhas", exist_ok=True)
 
 for nome, p in TEMAS.items():
     print("Gerando:", nome)
-    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 3000})
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
     audio = np.squeeze(saida["audio"])
     if audio.ndim > 1:
         audio = audio.T
@@ -635,7 +636,7 @@ print("Pronto. Arquivos em trilhas/")
 
 ### 5. Geração em lote — REGIÕES
 
-Mesma coisa para as regiões: 18 faixas, ~25 a 40 minutos. **Renomeie as chaves**
+Mesma coisa para as regiões: 18 faixas, ~12 a 18 minutos. **Renomeie as chaves**
 (`cidadela_1`, `gelo_1`…) para os nomes das suas regiões antes de rodar, e ajuste
 o bioma/instrumento no texto quando fizer sentido.
 
@@ -667,7 +668,7 @@ os.makedirs("trilhas", exist_ok=True)
 
 for nome, p in TEMAS.items():
     print("Gerando:", nome)
-    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 3000})
+    saida = gerador(p, forward_params={"do_sample": True, "max_new_tokens": 1500})
     audio = np.squeeze(saida["audio"])
     if audio.ndim > 1:
         audio = audio.T
@@ -704,51 +705,47 @@ arquivo.
 
 ---
 
-# Faixas mais longas que 30 segundos
+# Duração das faixas
 
 `max_new_tokens` controla a duração — o MusicGen gera 50 tokens por segundo de
 áudio:
 
-| `max_new_tokens` | Duração |
-|---|---|
-| 1500 | ~30s |
-| 3000 | ~1 min |
-| 4500 | ~1min30 |
-| 6000 | ~2 min |
+| `max_new_tokens` | Duração | |
+|---|---|---|
+| 1500 | ~30s | padrão destas células |
+| 2000 | ~40s | limite prático |
+| 2048+ | — | **quebra** |
 
-**As células deste guia usam 3000 (~1 minuto).**
+**Existe um teto rígido de 2048.** É o número de posições do decoder do modelo;
+pedir mais que isso estoura o índice e derruba a célula com
+`AcceleratorError: CUDA error: device-side assert triggered`. Quando isso
+acontece, a sessão CUDA fica corrompida: **reinicie a sessão** (*Ambiente de
+execução → Reiniciar sessão*) e recarregue o modelo antes de tentar de novo.
 
-O modelo foi treinado com trechos de 30 segundos, então acima disso ele continua
-gerando mas vai perdendo o rumo: repete demais, muda de ideia, às vezes desmancha
-a melodia. Em 1 minuto ele ainda segura bem na maioria das vezes; acima de 2
-minutos a chance de sair algo estranho é alta. Se alguma faixa vier arrastada ou
-repetitiva, apague o mp3 dela e regere com `1500`.
+Além do teto, o modelo foi treinado com trechos de 30 segundos — acima disso ele
+continua gerando, mas começa a repetir e a perder o rumo da melodia.
 
-O tempo de geração é proporcional à duração: cada minuto de música custa cerca
-de 1 minuto e meio de processamento na T4 com o `musicgen-small`.
+## Como chegar a 1 minuto (ou mais)
 
-## Alternativa melhor: esticar por repetição
-
-Instantâneo e sem perda de qualidade, já que a trilha toca em loop por baixo do
-slideshow de qualquer forma:
+Gere 30s e estique por repetição. É instantâneo, não degrada o áudio e a trilha
+toca em loop no slideshow de qualquer forma:
 
 ```python
 import os, glob
 
-for caminho in glob.glob("trilhas/*.mp3"):
+# 30s repetidos 2 vezes = 1 minuto. Para 3 minutos, use stream_loop 5.
+for caminho in sorted(glob.glob("trilhas/*.mp3")):
     if caminho.endswith("_longo.mp3"):
         continue
     destino = caminho.replace(".mp3", "_longo.mp3")
-    os.system(f"ffmpeg -y -loglevel error -stream_loop 5 -i {caminho} -b:a 160k {destino}")
+    os.system(f"ffmpeg -y -loglevel error -stream_loop 1 -i {caminho} -b:a 160k {destino}")
 
 print("Pronto.")
 ```
 
-`-stream_loop 5` repete 6 vezes: faixas de 1 minuto viram 6 minutos.
-
 > Como há **3 faixas por elemento**, o player do slideshow pode alternar entre
-> elas em vez de repetir a mesma — 1 minuto × 3 já dão 3 minutos de variação
-> real por elemento, sem repetir nada.
+> elas em vez de repetir a mesma: 30s × 3 já dão 1min30 de variação real por
+> elemento, sem nenhuma repetição.
 
 # Vocabulário para você criar os seus
 

@@ -248,6 +248,17 @@ const SS_VIDEO_TIMEOUT_MS = 8000; // vídeo que não começa não trava o slides
 const SS_CHECK_MS = 700;          // intervalo da vigilância de áudio e vídeo
 const SS_TRAVA_MS = 3000;         // vídeo parado sozinho por esse tempo: segue em frente
 const SS_FONT = '"Segoe UI", system-ui, -apple-system, sans-serif';
+const SS_VIDEO_SLOTS = 3;         // <video> reaproveitados (ver "linha 2" abaixo)
+
+/* O show é montado como uma linha do tempo de editor de vídeo, com três linhas:
+
+   linha 1 — imagem: alterna entre o card do personagem e o vídeo dele;
+   linha 2 — som do vídeo: vazia enquanto o card está em cena, preenchida só
+             quando o que está tocando é um vídeo que realmente tem áudio;
+   linha 3 — trilha: constante do começo ao fim. Não reinicia quando troca o
+             personagem nem a mídia; só abaixa o volume (ducking) enquanto a
+             linha 2 está preenchida, e só muda de faixa quando a atual acaba.
+*/
 
 const SS_ORDERS = [
   ['alpha', 'Ordem alfabética (A → Z)'],
@@ -286,6 +297,26 @@ function ssSelect(list, f, order) {
 const ssIsGif = (url) => /\.gif(\?.*)?$/i.test(url || '');
 const ssCardUrl = (c) => thumbUrl(c.card_promo || c.card_full, 1000);
 
+// Filtrou por um elemento ou uma região que tem trilha própria? Então a trilha
+// daquele grupo é a escolha óbvia — o show inteiro é daquele bloco. Elemento
+// vem antes de região por ser o recorte mais específico.
+function ssTrilhaSugerida(f) {
+  const alvos = [['element', f.element], ['region', f.region]];
+  for (const [scope, nome] of alvos) {
+    if (nome && ssFaixasDoGrupo(scope, nome).length) return `${scope}:${nome}`;
+  }
+  return '';
+}
+
+const SS_SUGESTAO_LABEL = { element: 'elemento', region: 'região' };
+
+function ssTextoSugestao(valor) {
+  if (!valor) return '';
+  const [scope, ...resto] = valor.split(':');
+  return `Sugerida pelo filtro de ${SS_SUGESTAO_LABEL[scope] || scope}: `
+    + `<b>${esc(resto.join(':'))}</b>. Trocar aqui mantém a sua escolha.`;
+}
+
 // ---------------------------------------------------------------- modal de filtros
 function openSlideshowModal() {
   const f = { ...filters };
@@ -296,6 +327,10 @@ function openSlideshowModal() {
     ? `${ssAudio.grupoFixo.scope}:${ssAudio.grupoFixo.ref}`
     : ssAudio.modo;
   if (trilha === 'auto' && !allTracks.length) trilha = 'none';
+  // Enquanto o usuário não mexer no select, a trilha acompanha os filtros.
+  let trilhaManual = false;
+  const sugestao = ssTrilhaSugerida(f);
+  if (sugestao) trilha = sugestao;
 
   const selects = SS_FILTER_LABELS.map(([dim, label, all]) => {
     const values = [...new Set((allParams[dim] || []).map((p) => p.name))];
@@ -335,6 +370,7 @@ function openSlideshowModal() {
         ${ssOpcoesDeGrupo(trilha)}
       </select>
       ${allTracks.length ? '' : '<p class="page-sub">Nenhuma faixa cadastrada — veja o módulo Trilhas.</p>'}
+      <p class="page-sub" id="ss-track-hint" ${sugestao ? '' : 'hidden'}>${ssTextoSugestao(sugestao)}</p>
     </div>
     <p class="ss-count" id="ss-count"></p>
     <div class="modal-actions">
@@ -344,6 +380,21 @@ function openSlideshowModal() {
 
   const countEl = overlay.querySelector('#ss-count');
   const startBtn = overlay.querySelector('#ss-start');
+  const trackSel = overlay.querySelector('#ss-track');
+  const trackHint = overlay.querySelector('#ss-track-hint');
+
+  // Refaz a sugestão a cada mudança de filtro, sem passar por cima de uma
+  // escolha manual.
+  function atualizarSugestao() {
+    const nova = ssTrilhaSugerida(f);
+    if (!trilhaManual && nova && nova !== trilha) {
+      trilha = nova;
+      trackSel.value = nova;
+    }
+    const mostrar = !trilhaManual && nova && trackSel.value === nova;
+    trackHint.hidden = !mostrar;
+    if (mostrar) trackHint.innerHTML = ssTextoSugestao(nova);
+  }
 
   function refresh() {
     const list = ssSelect(allChars, f, order);
@@ -357,20 +408,29 @@ function openSlideshowModal() {
   }
 
   overlay.querySelectorAll('[data-ss-filter]').forEach((sel) => {
-    sel.addEventListener('change', () => { f[sel.dataset.ssFilter] = sel.value; refresh(); });
+    sel.addEventListener('change', () => {
+      f[sel.dataset.ssFilter] = sel.value;
+      atualizarSugestao();
+      refresh();
+    });
   });
   overlay.querySelector('#ss-order').addEventListener('change', function () {
     order = this.value;
     try { localStorage.setItem('niro:chars:ss-order', order); } catch (_) { /* storage indisponível */ }
     refresh();
   });
-  overlay.querySelector('#ss-track').addEventListener('change', function () { trilha = this.value; });
+  trackSel.addEventListener('change', function () {
+    trilha = this.value;
+    trilhaManual = true;
+    trackHint.hidden = true;
+  });
   overlay.querySelector('[data-close]').addEventListener('click', () => closeModal(overlay));
   startBtn.addEventListener('click', () => {
     const list = refresh();
     if (!list.length) return;
     closeModal(overlay);
-    ssAplicarTrilha(trilha);
+    // A trilha sugerida vale só para este show: não vira preferência salva.
+    ssAplicarTrilha(trilha, { persistir: trilhaManual });
     ssStart(list, f, order);
   });
   refresh();
@@ -390,7 +450,7 @@ const SS_FADE_AUDIO = 1.2;   // crossfade entre faixas, em segundos
 const ssAudio = {
   ctx: null, master: null, duck: null, dest: null, videoGain: null,
   slots: [], atual: -1,
-  modo: 'auto', grupoFixo: null, grupo: null, playlist: [], pos: 0,
+  modo: 'auto', grupoFixo: null, grupo: null, grupoDesejado: null, playlist: [], pos: 0,
   volume: 0.7, mudo: false,
   // vêm do módulo Trilhas (ficam no banco, então valem também no celular)
   duckNivel: 0.15, somVideo: true,
@@ -568,9 +628,10 @@ function ssAudioTocar(faixa) {
   const proximo = (ssAudio.atual + 1) % 2;
   const slot = ssAudio.slots[proximo];
   slot.el.src = faixa.url;
-  // Com mais de uma faixa no grupo, a que termina dá lugar à próxima da fila;
-  // sozinha, ela repete.
-  slot.el.loop = ssAudio.playlist.length <= 1;
+  // Faixa sozinha num grupo que não pode mudar (trilha fixa ou aleatória entre
+  // todas) repete em loop. No modo automático ela precisa terminar de verdade:
+  // é no fim dela que o grupo do personagem atual é reavaliado.
+  slot.el.loop = ssAudio.playlist.length <= 1 && ssAudio.modo !== 'auto';
   slot.el.play().catch(() => { /* liberado no primeiro toque */ });
 
   const agora = ssAudio.ctx.currentTime;
@@ -590,21 +651,33 @@ function ssAudioTocar(faixa) {
   ssAudio.atual = proximo;
 }
 
-// Chamado a cada troca de personagem.
+// Chamado a cada troca de personagem. A trilha é a linha constante do show:
+// trocar de personagem (ou de mídia) nunca interrompe a música. A troca de
+// grupo fica anotada e só entra em cena quando a faixa atual terminar.
 function ssAudioAcompanhar(c) {
   if (!ssAudio.ctx) return;
   const escolha = ssGrupoPara(c);
   if (!escolha) return;
-  if (escolha.chave === ssAudio.grupo) return;   // mesmo bloco: mantém a música
+  ssAudio.grupoDesejado = escolha;
+  if (ssAudio.atual >= 0 && ssAudio.playlist.length) return;   // já tem música no ar
+  ssAudioAbrirGrupo(escolha);
+}
+
+function ssAudioAbrirGrupo(escolha) {
   ssAudio.grupo = escolha.chave;
   ssAudio.playlist = ssEmbaralhar(escolha.faixas);
   ssAudio.pos = 0;
   ssAudioTocar(ssAudio.playlist[0]);
 }
 
-// Próxima faixa do grupo, quando a atual termina.
+// Fim natural da faixa — único momento em que a trilha muda. Se o personagem
+// que está em cena agora pede outro grupo, é aqui que a virada acontece.
 function ssAudioProxima() {
-  if (!ssAudio.ctx || ssAudio.playlist.length < 2) return;
+  if (!ssAudio.ctx) return;
+  const c = ss.list[ss.idx];
+  const desejado = (c && ssGrupoPara(c)) || ssAudio.grupoDesejado;
+  if (desejado && desejado.chave !== ssAudio.grupo) { ssAudioAbrirGrupo(desejado); return; }
+  if (!ssAudio.playlist.length) return;
   ssAudio.pos = (ssAudio.pos + 1) % ssAudio.playlist.length;
   ssAudioTocar(ssAudio.playlist[ssAudio.pos]);
 }
@@ -648,6 +721,7 @@ function ssAudioEncerrar() {
   ssAudio.slots = [];
   ssAudio.atual = -1;
   ssAudio.grupo = null;
+  ssAudio.grupoDesejado = null;
   ssAudio.playlist = [];
   ssAudio.pos = 0;
 }
@@ -689,7 +763,8 @@ const ss = {
   list: [], filters: {}, order: 'alpha',
   idx: 0, phase: 'card', phaseStart: 0, paused: false, pausedAt: 0, raf: 0,
   media: null, mediaStarted: 0,
-  images: new Map(), videos: new Map(),
+  images: new Map(), gifs: new Map(), videoPool: [], duckAtivo: false,
+  temSom: new Map(),   // por arquivo de vídeo: tem faixa de áudio ou não
   rec: null, chunks: [], recMime: '', recStart: 0,
   recParaFilme: false, recMarcas: [], recDur: 0,
   // filme montado: um arquivo só, com trilha e vídeos já embutidos
@@ -717,43 +792,133 @@ function ssLoaded(url) {
   return v && v.naturalWidth ? v : null;
 }
 
-// Elemento de mídia do personagem: <video> para vídeo, <img> para gif.
-function ssMediaFor(i) {
-  const c = ss.list[i];
-  if (!c || !c.demo_video) return null;
-  if (ss.videos.has(i)) return ss.videos.get(i);
-  const src = `/static/${c.demo_video}`;
-  let el;
-  if (ssIsGif(src)) {
-    el = document.createElement('img');
-    el.src = src;
-  } else {
-    el = document.createElement('video');
-    // O vídeo do personagem tem som próprio; quem recua é a trilha.
+// ---------------------------------------------------------------- linha 2: mídia
+/*
+   Os <video> do show são um punhado fixo de elementos reaproveitados, e não um
+   elemento novo por personagem. Motivo: elemento de mídia criado no meio do
+   show nunca passou por um gesto do usuário, e o navegador recusa tocá-lo com
+   som — o código caía no play() mudo e o áudio do vídeo sumia do terceiro
+   personagem em diante. Os slots nascem e são destravados no mesmo clique que
+   abre o show; depois disso só trocam de `src`, e o destravamento continua
+   valendo. Gif não tem áudio nem essa trava, então segue como <img> comum.
+*/
+function ssCriarPoolDeVideos() {
+  ss.videoPool = [];
+  for (let k = 0; k < SS_VIDEO_SLOTS; k += 1) {
+    const el = document.createElement('video');
     el.muted = !ssAudio.somVideo;
-    el.defaultMuted = el.muted;
     el.loop = false;
     el.playsInline = true;
     el.setAttribute('playsinline', '');
     el.setAttribute('webkit-playsinline', '');
     el.preload = 'auto';
-    el.src = src;
-    el.load();
+    ss.pool.appendChild(el);
+    ss.videoPool.push({ el, idx: -1, src: '', usado: 0 });
   }
-  ss.pool.appendChild(el);
+}
+
+// Destrava os slots dentro do gesto que abriu o show: um play() mudo em cada um
+// basta para o navegador liberar aquele elemento pelo resto da sessão.
+function ssDestravarVideos() {
+  const primeiro = ss.list.map((c) => c.demo_video).find((v) => v && !ssIsGif(v));
+  ss.videoPool.forEach((slot) => {
+    const { el } = slot;
+    if (!el.getAttribute('src')) {
+      if (!primeiro) return;
+      el.src = `/static/${primeiro}`;   // src só para destravar; será trocado
+      el.load();
+    }
+    el.muted = true;                    // o aquecimento é silencioso
+    const p = el.play();
+    // pausa de volta só o que não é o vídeo em cena — senão o aquecimento
+    // congela o vídeo que acabou de começar
+    if (p && p.then) p.then(() => { if (ss.media !== el) el.pause(); }).catch(() => { /* destrava no play seguinte */ });
+  });
+}
+
+// Slot do pool que vai carregar o vídeo do personagem i. Reaproveita o que já
+// está com esse arquivo; senão pega o mais antigo que não está em cena.
+function ssSlotDeVideo(i, src) {
+  const pronto = ss.videoPool.find((s) => s.idx === i && s.src === src);
+  if (pronto) { pronto.usado = ssNow(); return pronto.el; }
+  const livres = ss.videoPool.filter((s) => s.el !== ss.media);
+  const slot = livres.sort((a, b) => a.usado - b.usado)[0] || ss.videoPool[0];
+  slot.idx = i;
+  slot.src = src;
+  slot.usado = ssNow();
+  const { el } = slot;
+  el.pause();
+  el.muted = !ssAudio.somVideo;
+  el.src = src;
+  el.load();
   if (ss.rec) ssConectarVideo(el);
-  ss.videos.set(i, el);
   return el;
 }
 
+// Elemento de mídia do personagem: <video> do pool para vídeo, <img> para gif.
+function ssMediaFor(i) {
+  const c = ss.list[i];
+  if (!c || !c.demo_video) return null;
+  const src = `/static/${c.demo_video}`;
+  if (!ssIsGif(src)) return ssSlotDeVideo(i, src);
+  if (!ss.gifs.has(i)) {
+    const img = document.createElement('img');
+    img.src = src;
+    ss.pool.appendChild(img);
+    ss.gifs.set(i, img);
+  }
+  return ss.gifs.get(i);
+}
+
+// Só os gifs precisam ser soltos: os <video> são reaproveitados pelo pool.
 function ssReleaseMedia(keep) {
-  [...ss.videos.keys()].forEach((i) => {
+  [...ss.gifs.keys()].forEach((i) => {
     if (keep.includes(i)) return;
-    const el = ss.videos.get(i);
-    if (el.tagName === 'VIDEO') { el.pause(); el.removeAttribute('src'); el.load(); }
-    el.remove();
-    ss.videos.delete(i);
+    ss.gifs.get(i).remove();
+    ss.gifs.delete(i);
   });
+  if (keep.length) return;
+  ss.videoPool.forEach((slot) => {
+    slot.el.pause();
+    slot.el.removeAttribute('src');
+    slot.el.load();
+    slot.el.remove();
+  });
+  ss.videoPool = [];
+}
+
+// ---------------------------------------------------------------- ducking (linhas 2 e 3)
+// A linha 2 só está preenchida quando o que está em cena é um vídeo com som de
+// verdade: gif não tem áudio, vídeo mudo (por ajuste ou porque o navegador
+// recusou tocar com som) também não, e há vídeo cadastrado sem faixa de áudio.
+// Nesses casos a trilha não tem por que recuar.
+function ssLembrarSom(src, tem) {
+  if (src) ss.temSom.set(src, tem);
+  return tem;
+}
+
+function ssMediaTemSom(el) {
+  if (!el || el.tagName !== 'VIDEO' || el.muted || !ssAudio.somVideo) return false;
+  const src = el.getAttribute('src') || '';
+  if (typeof el.mozHasAudio === 'boolean') return ssLembrarSom(src, el.mozHasAudio);
+  // Safari expõe as faixas assim que os metadados chegam — ali a resposta é na hora.
+  if (el.audioTracks && typeof el.audioTracks.length === 'number' && el.readyState >= 1) {
+    return ssLembrarSom(src, el.audioTracks.length > 0);
+  }
+  // Chrome não expõe: com um terço de segundo tocando, um vídeo com áudio já
+  // decodificou alguma coisa. A resposta fica guardada por arquivo, então o
+  // vaivém do volume acontece no máximo uma vez por vídeo mudo.
+  if (typeof el.webkitAudioDecodedByteCount === 'number' && el.currentTime > 0.3) {
+    return ssLembrarSom(src, el.webkitAudioDecodedByteCount > 0);
+  }
+  return ss.temSom.has(src) ? ss.temSom.get(src) : true;
+}
+
+function ssAtualizarDuck() {
+  const abaixar = ss.phase === 'media' && !ss.paused && ssMediaTemSom(ss.media);
+  if (abaixar === ss.duckAtivo) return;
+  ss.duckAtivo = abaixar;
+  ssAudioDuck(abaixar);
 }
 
 // ---------------------------------------------------------------- desenho
@@ -928,7 +1093,7 @@ function ssGoTo(i, { restartMedia = true } = {}) {
   ss.phaseStart = ssNow();
   if (restartMedia) ssPreload();
   ssAudioAcompanhar(ss.list[ss.idx]);
-  ssAudioDuck(false);
+  ssAtualizarDuck();          // card em cena: a linha 2 está vazia
   ssUpdateBar();
 }
 
@@ -951,9 +1116,10 @@ function ssTocarVideo(el) {
   el.muted = !ssAudio.somVideo;
   const p = el.play();
   if (!p || !p.then) { ss.mediaStarted = 1; return; }
-  p.then(() => { ss.mediaStarted = 1; }).catch(() => {
+  p.then(() => { ss.mediaStarted = 1; ssAtualizarDuck(); }).catch(() => {
     if (el.muted) return;
     el.muted = true;
+    ssAtualizarDuck();   // sem som no vídeo, a trilha não precisa recuar
     const q = el.play();
     if (q && q.then) q.then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
   });
@@ -966,7 +1132,6 @@ function ssStartMedia() {
   ss.mediaStarted = 0;
   ss.videoTravadoEm = 0;
   ss.phase = 'media';
-  ssAudioDuck(true);   // a trilha recua para o vídeo do personagem aparecer
   ss.phaseStart = ssNow();
   if (el.tagName === 'VIDEO') {
     try { el.currentTime = 0; } catch (_) { /* ainda sem metadata */ }
@@ -975,6 +1140,7 @@ function ssStartMedia() {
   } else {
     ss.mediaStarted = 1;
   }
+  ssAtualizarDuck();   // a trilha só recua se este vídeo tiver som
   ssUpdateBar();
 }
 
@@ -999,6 +1165,7 @@ function ssVigiarPlayback() {
   // contexto suspenso pelo sistema: tenta voltar (sem gesto, pode não dar)
   if (ssAudio.ctx && ssAudio.ctx.state === 'suspended') ssAudioResumir();
   else ssRetomarTrilha();
+  ssAtualizarDuck();   // o vídeo pode ter começado (ou acabado) sem som
 
   const el = ss.media;
   if (ss.phase === 'media' && el && el.tagName === 'VIDEO' && el.paused && !el.ended) {
@@ -1073,7 +1240,9 @@ function ssStart(list, f, order) {
   ss.idx = 0;
   ss.media = null;
   ss.images = new Map();
-  ss.videos = new Map();
+  ss.gifs = new Map();
+  ss.temSom = new Map();
+  ss.duckAtivo = false;
 
   const portrait = window.innerHeight > window.innerWidth;
   const overlay = document.createElement('div');
@@ -1154,15 +1323,9 @@ function ssStart(list, f, order) {
   // iOS só libera o play de vídeo dentro de um gesto: destrava aqui, no clique
   // que abriu o slideshow, os elementos já criados.
   ssAudioIniciar();
+  ssCriarPoolDeVideos();
   ssGoTo(0);
-  ss.videos.forEach((el) => {
-    if (el.tagName !== 'VIDEO') return;
-    el.muted = true;                       // o aquecimento é silencioso
-    const p = el.play();
-    // pausa de volta só o que não é o vídeo em cena — senão o aquecimento
-    // congela o vídeo que acabou de começar
-    if (p && p.then) p.then(() => { if (ss.media !== el) el.pause(); }).catch(() => { /* destrava no play seguinte */ });
-  });
+  ssDestravarVideos();
   ssAudioAcompanhar(ss.list[0]);
   ss.raf = requestAnimationFrame(ssFrame);
 }
@@ -1258,7 +1421,7 @@ function ssAtualizarBotaoSom() {
 
 // Traduz a escolha do modal para o motor. Valores possíveis: 'auto', 'random',
 // 'none' ou um grupo no formato 'element:Fae' / 'region:Aurion' / 'geral:'.
-function ssAplicarTrilha(valor) {
+function ssAplicarTrilha(valor, { persistir = true } = {}) {
   if (valor === 'auto' || valor === 'random' || valor === 'none') {
     ssAudio.modo = valor;
     ssAudio.grupoFixo = null;
@@ -1270,9 +1433,10 @@ function ssAplicarTrilha(valor) {
     ssAudio.modo = temFaixas ? 'grupo' : 'auto';
   }
   ssAudio.grupo = null;
+  ssAudio.grupoDesejado = null;
   ssAudio.playlist = [];
   ssAudio.pos = 0;
-  ssAudioSalvarPrefs();
+  if (persistir) ssAudioSalvarPrefs();
 }
 
 // Ponto único de pausa: vale tanto para o botão quanto para a pausa que o
@@ -1442,7 +1606,7 @@ function ssStartRecording(mime, paraFilme = false) {
   ss.recMarcas = [];
   // fora da gravação o vídeo toca pela saída nativa; agora ele precisa entrar
   // no grafo para o som dele ir junto no arquivo
-  ss.videos.forEach((el) => ssConectarVideo(el));
+  ss.videoPool.forEach((slot) => ssConectarVideo(slot.el));
   rec.ondataavailable = (e) => { if (e.data && e.data.size) ss.chunks.push(e.data); };
   rec.onstop = () => ssSaveRecording();
   rec.start(1000);
@@ -1579,6 +1743,7 @@ function ssExibirFilme(blob, marcas, dur) {
   ss.raf = 0;
   if (ss.media && ss.media.tagName === 'VIDEO') ss.media.pause();
   ssAudioPausar(true);          // a trilha já está dentro do filme
+  ss.duckAtivo = false;
   ssAudioDuck(false);
 
   const v = document.createElement('video');

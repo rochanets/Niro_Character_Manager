@@ -241,7 +241,7 @@ load().catch((e) => toast(e.message, 'error'));
    assistir, gravar (download) e projetar.
    ================================================================ */
 
-const SS_CARD_MS = 2000;          // tempo do card, com o zoom in
+let ssCardMs = 4000;              // tempo do card; vem dos ajustes da aba Trilhas
 const SS_FADE_MS = 380;           // crossfade do card para o vídeo
 const SS_GIF_MS = 5000;           // "vídeo" em gif não tem fim: tempo fixo
 const SS_VIDEO_TIMEOUT_MS = 8000; // vídeo que não começa não trava o slideshow
@@ -290,7 +290,9 @@ function openSlideshowModal() {
   let order = 'alpha';
   try { order = localStorage.getItem('niro:chars:ss-order') || 'alpha'; } catch (_) { /* storage indisponível */ }
   ssAudioCarregarPrefs();
-  let trilha = ssAudio.modo === 'fixa' && ssAudio.fixa ? String(ssAudio.fixa.id) : ssAudio.modo;
+  let trilha = ssAudio.modo === 'grupo' && ssAudio.grupoFixo
+    ? `${ssAudio.grupoFixo.scope}:${ssAudio.grupoFixo.ref}`
+    : ssAudio.modo;
   if (trilha === 'auto' && !allTracks.length) trilha = 'none';
 
   const selects = SS_FILTER_LABELS.map(([dim, label, all]) => {
@@ -304,8 +306,9 @@ function openSlideshowModal() {
   const overlay = openModal(`
     <h3><span class="rune">&#x16DE;</span> Slideshow de personagens</h3>
     <p class="page-sub" style="margin-bottom:14px">
-      Cada personagem aparece 2s no card, com um leve zoom, e em seguida toca o vídeo
-      cadastrado (quando houver). No fim do vídeo passa sozinho para o próximo.
+      Cada personagem aparece ${(ssCardMs / 1000).toString().replace('.', ',')}s no card,
+      com um leve zoom, e em seguida toca o vídeo cadastrado (quando houver). No fim do
+      vídeo passa sozinho para o próximo. O tempo do card fica em Parâmetros &rarr; Trilhas.
     </p>
     <div class="ss-filters">
       ${selects}
@@ -327,8 +330,7 @@ function openSlideshowModal() {
         <option value="auto" ${trilha === 'auto' ? 'selected' : ''}>Automática (segue o elemento ou a região)</option>
         <option value="random" ${trilha === 'random' ? 'selected' : ''}>Aleatória entre todas</option>
         <option value="none" ${trilha === 'none' ? 'selected' : ''}>Sem trilha</option>
-        ${allTracks.map((t) => `<option value="${t.id}" ${trilha === String(t.id) ? 'selected' : ''}>
-          Só esta: ${esc(t.name)}${t.ref_name ? ` (${esc(t.ref_name)})` : ''}</option>`).join('')}
+        ${ssOpcoesDeGrupo(trilha)}
       </select>
       ${allTracks.length ? '' : '<p class="page-sub">Nenhuma faixa cadastrada — veja o módulo Trilhas.</p>'}
     </div>
@@ -386,7 +388,7 @@ const SS_FADE_AUDIO = 1.2;   // crossfade entre faixas, em segundos
 const ssAudio = {
   ctx: null, master: null, duck: null, dest: null, videoGain: null,
   slots: [], atual: -1,
-  modo: 'auto', fixa: null, grupo: null,
+  modo: 'auto', grupoFixo: null, grupo: null, playlist: [], pos: 0,
   volume: 0.7, mudo: false,
   // vêm do módulo Trilhas (ficam no banco, então valem também no celular)
   duckNivel: 0.15, somVideo: true,
@@ -398,6 +400,7 @@ async function ssCarregarAjustes() {
     const cfg = await api('/api/tracks/settings');
     ssAudio.duckNivel = cfg.duck;
     ssAudio.somVideo = !!cfg.video_sound;
+    if (cfg.card_seconds) ssCardMs = cfg.card_seconds * 1000;
     if (!ssAudio.volumeLocal) ssAudio.volume = cfg.volume;
   } catch (_) { /* mantém os padrões */ }
 }
@@ -409,6 +412,7 @@ function ssAudioCarregarPrefs() {
       if (typeof salvo.volume === 'number') { ssAudio.volume = salvo.volume; ssAudio.volumeLocal = true; }
       if (typeof salvo.mudo === 'boolean') ssAudio.mudo = salvo.mudo;
       if (salvo.modo) ssAudio.modo = salvo.modo;
+      if (salvo.grupoFixo) ssAudio.grupoFixo = salvo.grupoFixo;
     }
   } catch (_) { /* storage indisponível */ }
 }
@@ -416,7 +420,8 @@ function ssAudioCarregarPrefs() {
 function ssAudioSalvarPrefs() {
   try {
     localStorage.setItem(SS_AUDIO_KEY,
-      JSON.stringify({ volume: ssAudio.volume, mudo: ssAudio.mudo, modo: ssAudio.modo }));
+      JSON.stringify({ volume: ssAudio.volume, mudo: ssAudio.mudo,
+                       modo: ssAudio.modo, grupoFixo: ssAudio.grupoFixo }));
   } catch (_) { /* storage indisponível */ }
 }
 
@@ -446,9 +451,11 @@ function ssAudioIniciar() {
   // dois slots alternados: enquanto um sobe, o outro desce (crossfade)
   ssAudio.slots = [0, 1].map(() => {
     const el = document.createElement('audio');
-    el.loop = true;
     el.preload = 'auto';
     el.crossOrigin = 'anonymous';
+    el.addEventListener('ended', () => {
+      if (ssAudio.slots[ssAudio.atual] && ssAudio.slots[ssAudio.atual].el === el) ssAudioProxima();
+    });
     ss.pool.appendChild(el);
     const gain = ssAudio.ctx.createGain();
     gain.gain.value = 0;
@@ -478,25 +485,41 @@ function ssAudioResumir() {
   ssAtualizarBotaoSom();
 }
 
-function ssSorteio(lista) {
-  return lista[Math.floor(Math.random() * lista.length)];
+function ssEmbaralhar(lista) {
+  const copia = [...lista];
+  for (let i = copia.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
 }
 
-// Qual faixa combina com este personagem, e a que grupo ela pertence.
-// O grupo evita trocar de música a cada personagem: só troca quando muda o
-// elemento (ou a região) do bloco que está passando.
-function ssFaixaPara(c) {
+// As faixas de um grupo (elemento, região ou "geral").
+function ssFaixasDoGrupo(scope, ref) {
+  if (scope === 'geral') return allTracks.filter((t) => !t.ref_name);
+  return allTracks.filter((t) => t.scope === scope && t.ref_name === ref);
+}
+
+// Que grupo de faixas toca neste personagem. A escolha é sempre de um grupo,
+// nunca de uma faixa solta: dentro dele as faixas se revezam em ordem
+// embaralhada, e o grupo só muda quando muda o bloco que está passando.
+function ssGrupoPara(c) {
   if (!allTracks.length || ssAudio.modo === 'none') return null;
-  if (ssAudio.modo === 'fixa') {
-    return ssAudio.fixa ? { grupo: `f:${ssAudio.fixa.id}`, faixa: ssAudio.fixa } : null;
+
+  if (ssAudio.modo === 'grupo' && ssAudio.grupoFixo) {
+    const { scope, ref } = ssAudio.grupoFixo;
+    const faixas = ssFaixasDoGrupo(scope, ref);
+    if (faixas.length) return { chave: `g:${scope}:${ref || ''}`, faixas };
   }
+
   if (ssAudio.modo === 'auto') {
-    const doElemento = allTracks.filter((t) => t.scope === 'element' && t.ref_name === c.element.name);
-    if (doElemento.length) return { grupo: `e:${c.element.name}`, faixa: ssSorteio(doElemento) };
-    const daRegiao = allTracks.filter((t) => t.scope === 'region' && t.ref_name === c.region.name);
-    if (daRegiao.length) return { grupo: `r:${c.region.name}`, faixa: ssSorteio(daRegiao) };
+    const doElemento = ssFaixasDoGrupo('element', c.element.name);
+    if (doElemento.length) return { chave: `e:${c.element.name}`, faixas: doElemento };
+    const daRegiao = ssFaixasDoGrupo('region', c.region.name);
+    if (daRegiao.length) return { chave: `r:${c.region.name}`, faixas: daRegiao };
   }
-  return { grupo: 'aleatorio', faixa: ssSorteio(allTracks) };
+
+  return { chave: 'todas', faixas: allTracks };
 }
 
 function ssAudioTocar(faixa) {
@@ -504,6 +527,9 @@ function ssAudioTocar(faixa) {
   const proximo = (ssAudio.atual + 1) % 2;
   const slot = ssAudio.slots[proximo];
   slot.el.src = faixa.url;
+  // Com mais de uma faixa no grupo, a que termina dá lugar à próxima da fila;
+  // sozinha, ela repete.
+  slot.el.loop = ssAudio.playlist.length <= 1;
   slot.el.play().catch(() => { /* liberado no primeiro toque */ });
 
   const agora = ssAudio.ctx.currentTime;
@@ -526,11 +552,20 @@ function ssAudioTocar(faixa) {
 // Chamado a cada troca de personagem.
 function ssAudioAcompanhar(c) {
   if (!ssAudio.ctx) return;
-  const escolha = ssFaixaPara(c);
+  const escolha = ssGrupoPara(c);
   if (!escolha) return;
-  if (escolha.grupo === ssAudio.grupo) return;   // mesmo bloco: mantém a música
-  ssAudio.grupo = escolha.grupo;
-  ssAudioTocar(escolha.faixa);
+  if (escolha.chave === ssAudio.grupo) return;   // mesmo bloco: mantém a música
+  ssAudio.grupo = escolha.chave;
+  ssAudio.playlist = ssEmbaralhar(escolha.faixas);
+  ssAudio.pos = 0;
+  ssAudioTocar(ssAudio.playlist[0]);
+}
+
+// Próxima faixa do grupo, quando a atual termina.
+function ssAudioProxima() {
+  if (!ssAudio.ctx || ssAudio.playlist.length < 2) return;
+  ssAudio.pos = (ssAudio.pos + 1) % ssAudio.playlist.length;
+  ssAudioTocar(ssAudio.playlist[ssAudio.pos]);
 }
 
 // Abaixa a trilha enquanto o vídeo do personagem toca e devolve o volume depois.
@@ -572,6 +607,39 @@ function ssAudioEncerrar() {
   ssAudio.slots = [];
   ssAudio.atual = -1;
   ssAudio.grupo = null;
+  ssAudio.playlist = [];
+  ssAudio.pos = 0;
+}
+
+// Opções de trilha do modal: um item por grupo (elemento, região ou geral),
+// e não um item por faixa — dentro do grupo as faixas se revezam sozinhas.
+function ssOpcoesDeGrupo(selecionado) {
+  const grupos = new Map();
+  for (const t of allTracks) {
+    const chave = t.ref_name ? `${t.scope}:${t.ref_name}` : 'geral:';
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(t);
+  }
+
+  const secoes = [
+    ['element', 'Elementos'],
+    ['region', 'Regiões'],
+    ['geral', 'Sem vínculo'],
+  ];
+
+  return secoes.map(([scope, titulo]) => {
+    const itens = [...grupos.entries()]
+      .filter(([chave]) => chave.startsWith(`${scope}:`))
+      .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+      .map(([chave, faixas]) => {
+        const ref = chave.split(':')[1];
+        const nome = ref || 'Sem vínculo';
+        const plural = faixas.length === 1 ? 'faixa' : 'faixas';
+        return `<option value="${esc(chave)}" ${selecionado === chave ? 'selected' : ''}>
+          ${esc(nome)} — ${faixas.length} ${plural}</option>`;
+      });
+    return itens.length ? `<optgroup label="${titulo}">${itens.join('')}</optgroup>` : '';
+  }).join('');
 }
 
 // ---------------------------------------------------------------- estado do palco
@@ -689,21 +757,33 @@ function ssBackdrop(img) {
   ctx.restore();
 }
 
-function ssCardBox() {
+// A caixa do card assume a proporção da própria arte: assim a imagem aparece
+// inteira, sem corte, em vez de ser recortada num 3:4 fixo. Nome e estrelas ficam
+// numa faixa logo abaixo, fora da arte, para não cobrirem nada dela.
+function ssCardBox(img, zoom = 1) {
   const cv = ss.canvas;
-  let h = cv.height * 0.86;
-  let w = h * 0.75;                       // mesmo 3:4 do card da galeria
-  if (w > cv.width * 0.88) { w = cv.width * 0.88; h = w / 0.75; }
-  return { x: (cv.width - w) / 2, y: (cv.height - h) / 2, w, h };
+  const proporcao = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : 0.75;
+  const legenda = cv.height * 0.085;
+  const respiro = cv.height * 0.022;
+  const alturaLivre = cv.height * 0.94 - legenda - respiro;
+  let h = alturaLivre;
+  let w = h * proporcao;
+  if (w > cv.width * 0.88) { w = cv.width * 0.88; h = w / proporcao; }
+  w *= zoom;
+  h *= zoom;
+  const total = h + respiro + legenda;
+  return { x: (cv.width - w) / 2, y: (cv.height - total) / 2, w, h, legenda, respiro };
 }
 
 function ssDrawCard(c, t, alpha) {
   const { ctx } = ss;
-  const { x, y, w, h } = ssCardBox();
-  const ease = 1 - Math.pow(1 - t, 3);
-  const zoom = 1 + 0.08 * ease;           // zoom in leve: dá movimento ao card
-  const radius = Math.min(w, h) * 0.05;
   const img = ssLoaded(ssCardUrl(c));
+  const ease = 1 - Math.pow(1 - t, 3);
+  // O zoom cresce o card inteiro, e não a arte dentro dele: o movimento continua
+  // existindo sem que as bordas da imagem sejam comidas.
+  const zoom = 1 + 0.06 * ease;
+  const { x, y, w, h, legenda, respiro } = ssCardBox(img, zoom);
+  const radius = Math.min(w, h) * 0.05;
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -720,24 +800,10 @@ function ssDrawCard(c, t, alpha) {
   ssRoundRect(ctx, x, y, w, h, radius);
   ctx.clip();
   if (img) {
-    const zw = w * zoom, zh = h * zoom;
-    const f = ssCover(img.naturalWidth, img.naturalHeight, zw, zh);
-    ctx.drawImage(img, x + (w - zw) / 2 + f.x, y + (h - zh) / 2 + f.y, f.w, f.h);
+    // a caixa já tem a proporção da arte, então ela entra inteira e encaixada
+    const f = ssContain(img.naturalWidth, img.naturalHeight, w, h);
+    ctx.drawImage(img, x + f.x, y + f.y, f.w, f.h);
   }
-
-  // faixa inferior com nome e estrelas, como no card da galeria
-  const barH = h * 0.105;
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(x, y + h - barH, w, barH);
-  ctx.textBaseline = 'middle';
-  ctx.font = `600 ${barH * 0.4}px ${SS_FONT}`;
-  ctx.fillStyle = '#f2f3fa';
-  ctx.textAlign = 'left';
-  ctx.fillText(c.name, x + w * 0.05, y + h - barH / 2, w * 0.6);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = c.rarity === 5 ? '#e0b45c' : '#9085e9';
-  ctx.font = `${barH * 0.33}px ${SS_FONT}`;
-  ctx.fillText('★'.repeat(c.rarity || 0), x + w - w * 0.05, y + h - barH / 2);
 
   // ícone do elemento no canto superior esquerdo
   const elImg = ssLoaded(thumbUrl(c.element.image, 128));
@@ -760,6 +826,20 @@ function ssDrawCard(c, t, alpha) {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = Math.max(1, w * 0.003);
   ctx.stroke();
+
+  // nome e estrelas abaixo da arte, nunca por cima dela
+  const meio = y + h + respiro + legenda / 2;
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = legenda * 0.25;
+  ctx.font = `600 ${legenda * 0.46}px ${SS_FONT}`;
+  ctx.fillStyle = '#f2f3fa';
+  ctx.textAlign = 'left';
+  ctx.fillText(c.name, x, meio, w * 0.65);
+  ctx.font = `${legenda * 0.38}px ${SS_FONT}`;
+  ctx.fillStyle = c.rarity === 5 ? '#e0b45c' : '#9085e9';
+  ctx.textAlign = 'right';
+  ctx.fillText('★'.repeat(c.rarity || 0), x + w, meio);
   ctx.restore();
 }
 
@@ -856,7 +936,7 @@ function ssFrame() {
   const cardImg = ssLoaded(ssCardUrl(c));
 
   if (ss.phase === 'card') {
-    const t = Math.min(1, elapsed / SS_CARD_MS);
+    const t = Math.min(1, elapsed / ssCardMs);
     ssBackdrop(cardImg);
     ssDrawCard(c, t, 1);
     if (!ss.paused && t >= 1) ssStartMedia();
@@ -1046,19 +1126,22 @@ function ssAtualizarBotaoSom() {
     : (ssAudio.mudo ? 'Ativar a trilha' : 'Silenciar a trilha');
 }
 
-// Traduz a escolha do modal ('auto' | 'random' | 'none' | id da faixa) para o motor.
+// Traduz a escolha do modal para o motor. Valores possíveis: 'auto', 'random',
+// 'none' ou um grupo no formato 'element:Fae' / 'region:Aurion' / 'geral:'.
 function ssAplicarTrilha(valor) {
-  if (valor === 'auto' || valor === 'none') {
+  if (valor === 'auto' || valor === 'random' || valor === 'none') {
     ssAudio.modo = valor;
-    ssAudio.fixa = null;
-  } else if (valor === 'random') {
-    ssAudio.modo = 'random';
-    ssAudio.fixa = null;
+    ssAudio.grupoFixo = null;
   } else {
-    ssAudio.fixa = allTracks.find((t) => String(t.id) === String(valor)) || null;
-    ssAudio.modo = ssAudio.fixa ? 'fixa' : 'auto';
+    const [scope, ...resto] = String(valor).split(':');
+    const ref = resto.join(':');
+    const temFaixas = ssFaixasDoGrupo(scope, ref).length > 0;
+    ssAudio.grupoFixo = temFaixas ? { scope, ref } : null;
+    ssAudio.modo = temFaixas ? 'grupo' : 'auto';
   }
   ssAudio.grupo = null;
+  ssAudio.playlist = [];
+  ssAudio.pos = 0;
   ssAudioSalvarPrefs();
 }
 
@@ -1224,8 +1307,9 @@ function ssShareUrl() {
   url.searchParams.set('show', '1');
   Object.entries(ss.filters).forEach(([k, v]) => { if (v) url.searchParams.set(k, v); });
   url.searchParams.set('order', ss.order);
-  url.searchParams.set('trilha',
-    ssAudio.modo === 'fixa' && ssAudio.fixa ? String(ssAudio.fixa.id) : ssAudio.modo);
+  url.searchParams.set('trilha', ssAudio.modo === 'grupo' && ssAudio.grupoFixo
+    ? `${ssAudio.grupoFixo.scope}:${ssAudio.grupoFixo.ref}`
+    : ssAudio.modo);
   return url.toString();
 }
 

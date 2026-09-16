@@ -1257,6 +1257,31 @@ body.ss-lock { overflow: hidden; }
   border-radius: 12px; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.7);
   background: #05050c;
 }
+/* modo filme: o palco vira um <video> único, com o show inteiro já montado */
+.ss-filme {
+  max-width: 100%; max-height: 100%; width: auto; height: auto;
+  border-radius: 12px; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.7);
+  background: #05050c;
+}
+.ss-btn.so-filme { display: none; }
+.ss-overlay.ss-modo-filme .ss-btn.so-filme { display: inline-flex; }
+.ss-overlay.ss-modo-filme .ss-btn.so-slides { display: none; }
+.ss-overlay.ss-pseudo-fs .ss-filme { border-radius: 0; }
+
+/* X de saída: fica sobre o palco, e não na barra, para continuar acessível
+   em tela cheia (inclusive na tela cheia "de mentira" do iPhone). */
+.ss-exit {
+  position: absolute; z-index: 6;
+  top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right));
+  width: 34px; height: 34px; border-radius: 50%; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #ff6b6b; background: rgba(10, 10, 20, 0.62);
+  border: 1px solid rgba(255, 107, 107, 0.6); cursor: pointer;
+  backdrop-filter: blur(6px); transition: all 0.15s ease;
+}
+.ss-exit svg { width: 16px; height: 16px; }
+.ss-exit:hover { background: #e34b4b; color: #fff; border-color: #e34b4b; }
+
 .ss-pool { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .ss-pool video, .ss-pool img { width: 1px; height: 1px; }
 
@@ -1273,7 +1298,7 @@ body.ss-lock { overflow: hidden; }
 }
 .ss-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
 .ss-meta { color: var(--ink-2); font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ss-buttons { display: flex; align-items: center; gap: 8px; }
+.ss-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 100%; }
 .ss-sep { width: 1px; height: 20px; background: var(--glass-border); }
 .ss-btn {
   width: 40px; height: 40px; border-radius: 10px; padding: 0;
@@ -1296,10 +1321,21 @@ body.ss-lock { overflow: hidden; }
 .ss-overlay.ss-pseudo-fs .ss-stage { padding: 0; }
 .ss-overlay.ss-pseudo-fs .ss-canvas { border-radius: 0; }
 
+/* No celular a fileira de botões não cabe em uma linha só: ela quebra em vez
+   de vazar para fora da tela (o que escondia os botões das pontas). */
 @media (max-width: 760px) {
-  .ss-row { justify-content: center; }
+  .ss-bar { padding: 10px 10px max(12px, env(safe-area-inset-bottom)); }
+  .ss-row { justify-content: center; gap: 8px; }
   .ss-meta { width: 100%; text-align: center; }
-  .ss-btn { width: 44px; height: 44px; }
+  .ss-buttons { width: 100%; gap: 7px; row-gap: 8px; }
+  .ss-btn { width: 42px; height: 42px; }
+}
+
+@media (max-width: 420px) {
+  .ss-sep { display: none; }
+  .ss-buttons { gap: 6px; }
+  .ss-btn { width: 40px; height: 40px; }
+  .ss-vol { width: 100%; max-width: 160px; }
 }
 
 /* ============================================================

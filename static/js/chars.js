@@ -245,6 +245,8 @@ let ssCardMs = 4000;              // tempo do card; vem dos ajustes da aba Trilh
 const SS_FADE_MS = 380;           // crossfade do card para o vídeo
 const SS_GIF_MS = 5000;           // "vídeo" em gif não tem fim: tempo fixo
 const SS_VIDEO_TIMEOUT_MS = 8000; // vídeo que não começa não trava o slideshow
+const SS_CHECK_MS = 700;          // intervalo da vigilância de áudio e vídeo
+const SS_TRAVA_MS = 3000;         // vídeo parado sozinho por esse tempo: segue em frente
 const SS_FONT = '"Segoe UI", system-ui, -apple-system, sans-serif';
 
 const SS_ORDERS = [
@@ -456,6 +458,10 @@ function ssAudioIniciar() {
     el.addEventListener('ended', () => {
       if (ssAudio.slots[ssAudio.atual] && ssAudio.slots[ssAudio.atual].el === el) ssAudioProxima();
     });
+    // Faixa que não carrega não pode travar a trilha: pula para a próxima.
+    el.addEventListener('error', () => {
+      if (ssAudio.slots[ssAudio.atual] && ssAudio.slots[ssAudio.atual].el === el) ssAudioProxima();
+    });
     ss.pool.appendChild(el);
     const gain = ssAudio.ctx.createGain();
     gain.gain.value = 0;
@@ -465,11 +471,19 @@ function ssAudioIniciar() {
   });
   ssAudio.atual = -1;
   ssAudio.grupo = null;
+  // O navegador suspende o contexto sozinho ao sair do app: seguir o estado
+  // mantém o botão de som coerente com o que está realmente tocando.
+  if (typeof ssAudio.ctx.addEventListener === 'function') {
+    ssAudio.ctx.addEventListener('statechange', ssAtualizarBotaoSom);
+  }
   ssAudioResumir();
 }
 
-// Liga o áudio de um <video> ao grafo, para ele sair nos alto-falantes e também
-// na gravação. Um elemento só pode ser ligado uma vez.
+// Liga o áudio de um <video> ao grafo do AudioContext. Só é feito durante a
+// gravação: ligar um <video> ao contexto tira o som dele da saída nativa e o
+// deixa refém do estado do contexto — se o navegador suspende o áudio (sair do
+// app, ligação, tela bloqueada), o vídeo fica mudo mesmo com o volume aberto.
+// Fora da gravação o vídeo toca pela saída normal, que sempre volta sozinha.
 function ssConectarVideo(el) {
   if (!ssAudio.ctx || !el || el.tagName !== 'VIDEO' || el.dataset.ligado) return;
   try {
@@ -478,11 +492,38 @@ function ssConectarVideo(el) {
   } catch (_) { /* já estava ligado */ }
 }
 
+// Devolve o áudio depois de qualquer interrupção (pausa, sair do app, ligação).
+// Só destravar o contexto não basta: os elementos de áudio ficam parados e
+// precisam de um play() novo, senão a trilha some pelo resto do show.
 function ssAudioResumir() {
-  if (ssAudio.ctx && ssAudio.ctx.state === 'suspended') {
-    ssAudio.ctx.resume().catch(() => { /* precisa de um toque do usuário */ });
+  if (!ssAudio.ctx) return;
+  if (ssAudio.ctx.state === 'suspended') {
+    ssAudio.ctx.resume().then(() => {
+      if (!ss.paused) ssRetomarTrilha();
+      ssAtualizarBotaoSom();
+    }).catch(() => { /* precisa de um toque do usuário */ });
+  } else if (!ss.paused) {
+    ssRetomarTrilha();
   }
   ssAtualizarBotaoSom();
+}
+
+// A trilha voltou a existir? Se o grupo sumiu, escolhe de novo; se a faixa atual
+// ficou parada (o sistema pausou ao sair do app), manda tocar outra vez.
+function ssRetomarTrilha() {
+  if (!ssAudio.ctx || ssAudio.modo === 'none' || !ss.open) return;
+  if (ssFilmeAtivo()) return;   // no filme a trilha já está dentro do arquivo
+  const c = ss.list[ss.idx];
+  if (!c) return;
+  if (ssAudio.atual < 0 || !ssAudio.playlist.length) {
+    ssAudio.grupo = null;             // força reescolher o grupo do personagem atual
+    ssAudioAcompanhar(c);
+    return;
+  }
+  const slot = ssAudio.slots[ssAudio.atual];
+  if (!slot) return;
+  if (slot.el.ended) { ssAudioProxima(); return; }
+  if (slot.el.paused) slot.el.play().catch(() => { /* liberado no primeiro toque */ });
 }
 
 function ssEmbaralhar(lista) {
@@ -650,6 +691,11 @@ const ss = {
   media: null, mediaStarted: 0,
   images: new Map(), videos: new Map(),
   rec: null, chunks: [], recMime: '', recStart: 0,
+  recParaFilme: false, recMarcas: [], recDur: 0,
+  // filme montado: um arquivo só, com trilha e vídeos já embutidos
+  filme: null,
+  // pausa que o sistema causou (sair do app) e vigilância do playback
+  autoPausado: false, ultimaChecagem: 0, videoTravadoEm: 0,
 };
 
 function ssImage(url) {
@@ -695,7 +741,7 @@ function ssMediaFor(i) {
     el.load();
   }
   ss.pool.appendChild(el);
-  ssConectarVideo(el);
+  if (ss.rec) ssConectarVideo(el);
   ss.videos.set(i, el);
   return el;
 }
@@ -873,6 +919,9 @@ function ssNow() { return performance.now(); }
 
 function ssGoTo(i, { restartMedia = true } = {}) {
   ss.idx = (i + ss.list.length) % ss.list.length;
+  // Enquanto monta o filme, guarda em que segundo cada personagem entra: é o que
+  // permite pular de personagem depois, já dentro do arquivo pronto.
+  if (ss.rec) ss.recMarcas.push({ i: ss.idx, t: Math.max(0, (ssNow() - ss.recStart) / 1000) });
   if (ss.media && ss.media.tagName === 'VIDEO') ss.media.pause();
   ss.media = null;
   ss.phase = 'card';
@@ -894,24 +943,35 @@ function ssPreload() {
   ssReleaseMedia([ss.idx, (ss.idx + 1) % ss.list.length]);
 }
 
+// Dá play no vídeo do personagem com o som que os ajustes pedem. Alguns
+// navegadores recusam tocar com som sem gesto do usuário: em vez de pular o
+// vídeo, ele toca mudo.
+function ssTocarVideo(el) {
+  if (!el || el.tagName !== 'VIDEO') return;
+  el.muted = !ssAudio.somVideo;
+  const p = el.play();
+  if (!p || !p.then) { ss.mediaStarted = 1; return; }
+  p.then(() => { ss.mediaStarted = 1; }).catch(() => {
+    if (el.muted) return;
+    el.muted = true;
+    const q = el.play();
+    if (q && q.then) q.then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
+  });
+}
+
 function ssStartMedia() {
   const el = ssMediaFor(ss.idx);
   if (!el) { ssNext(); return; }
   ss.media = el;
   ss.mediaStarted = 0;
+  ss.videoTravadoEm = 0;
   ss.phase = 'media';
   ssAudioDuck(true);   // a trilha recua para o vídeo do personagem aparecer
   ss.phaseStart = ssNow();
   if (el.tagName === 'VIDEO') {
     try { el.currentTime = 0; } catch (_) { /* ainda sem metadata */ }
-    el.muted = !ssAudio.somVideo;
-    el.play().then(() => { ss.mediaStarted = 1; }).catch(() => {
-      // alguns navegadores recusam tocar com som sem gesto do usuário:
-      // em vez de pular o vídeo, toca mudo.
-      if (el.muted) return;
-      el.muted = true;
-      el.play().then(() => { ss.mediaStarted = 1; }).catch(() => { /* segue pelo timeout */ });
-    });
+    if (ss.rec) ssConectarVideo(el);   // durante a gravação o som do vídeo entra no grafo
+    ssTocarVideo(el);
   } else {
     ss.mediaStarted = 1;
   }
@@ -927,9 +987,34 @@ function ssNext() {
   ssGoTo(ss.idx + 1);
 }
 
+// Vigia o que o navegador pode ter desligado por conta própria — voltar de
+// segundo plano, uma ligação, a tela bloqueando. Sem isso o show continua
+// desenhando enquanto o vídeo está parado e a trilha, muda.
+function ssVigiarPlayback() {
+  if (!ss.open || ss.paused || ssFilmeAtivo()) return;
+  const agora = ssNow();
+  if (agora - ss.ultimaChecagem < SS_CHECK_MS) return;
+  ss.ultimaChecagem = agora;
+
+  // contexto suspenso pelo sistema: tenta voltar (sem gesto, pode não dar)
+  if (ssAudio.ctx && ssAudio.ctx.state === 'suspended') ssAudioResumir();
+  else ssRetomarTrilha();
+
+  const el = ss.media;
+  if (ss.phase === 'media' && el && el.tagName === 'VIDEO' && el.paused && !el.ended) {
+    if (!ss.videoTravadoEm) ss.videoTravadoEm = agora;
+    ssTocarVideo(el);
+    // não voltou mesmo depois de insistir: não trava o show no meio
+    if (agora - ss.videoTravadoEm > SS_TRAVA_MS) { ss.videoTravadoEm = 0; ssNext(); }
+  } else {
+    ss.videoTravadoEm = 0;
+  }
+}
+
 function ssFrame() {
   if (!ss.open) return;
   ss.raf = requestAnimationFrame(ssFrame);
+  ssVigiarPlayback();
   const c = ss.list[ss.idx];
   if (!c) return;
   const elapsed = (ss.paused ? ss.pausedAt : ssNow()) - ss.phaseStart;
@@ -969,6 +1054,8 @@ const SS_ICONS = {
   down: '<svg viewBox="0 0 24 24"><path d="M12 3v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L10 12.2V3zM4 19h16v2H4z" fill="currentColor"/></svg>',
   cast: '<svg viewBox="0 0 24 24"><path d="M3 5h18v11h-6v-2h4V7H5v2H3zm0 6a7 7 0 0 1 7 7H8a5 5 0 0 0-5-5zm0 4a3 3 0 0 1 3 3H4a1 1 0 0 0-1-1z" fill="currentColor"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7l1.4-1.4L10.6 10.6l6.3-6.3z" fill="currentColor"/></svg>',
+  filme: '<svg viewBox="0 0 24 24"><path d="M3 5h3.2l1.6 3H5.4L3.8 5zm5.4 0h3.2l1.6 3h-3.2zm5.4 0h3.2l1.6 3h-3.2zM3 10h18v9H3zm2 2v5h14v-5z" fill="currentColor"/></svg>',
+  slides: '<svg viewBox="0 0 24 24"><path d="M3 4h8v7H3zm10 0h8v7h-8zM3 13h8v7H3zm10 0h8v7h-8z" fill="currentColor"/></svg>',
   som: '<svg viewBox="0 0 24 24"><path d="M4 9h3l5-4v14l-5-4H4zm12.5-.5a5 5 0 0 1 0 7l1.4 1.4a7 7 0 0 0 0-9.8z" fill="currentColor"/></svg>',
   mudo: '<svg viewBox="0 0 24 24"><path d="M4 9h3l5-4v14l-5-4H4zm13.7-1.3 1.4 1.4L17.4 12l1.7 1.9-1.4 1.4L16 13.4l-1.7 1.9-1.4-1.4L14.6 12l-1.7-1.9 1.4-1.4L16 10.6z" fill="currentColor"/></svg>',
 };
@@ -980,6 +1067,11 @@ function ssStart(list, f, order) {
   ss.order = order;
   ss.open = true;
   ss.paused = false;
+  ss.autoPausado = false;
+  ss.ultimaChecagem = 0;
+  ss.videoTravadoEm = 0;
+  ss.idx = 0;
+  ss.media = null;
   ss.images = new Map();
   ss.videos = new Map();
 
@@ -987,6 +1079,8 @@ function ssStart(list, f, order) {
   const overlay = document.createElement('div');
   overlay.className = 'ss-overlay';
   overlay.innerHTML = `
+    <button type="button" class="ss-exit" data-act="close" title="Sair do show"
+            aria-label="Sair do show">${SS_ICONS.close}</button>
     <div class="ss-stage"><canvas class="ss-canvas"></canvas></div>
     <div class="ss-pool"></div>
     <div class="ss-bar">
@@ -1003,6 +1097,10 @@ function ssStart(list, f, order) {
                  aria-label="Volume da trilha" title="Volume da trilha">
           <span class="ss-sep"></span>
           <button type="button" class="ss-btn" data-act="full" title="Tela cheia">${SS_ICONS.full}</button>
+          <button type="button" class="ss-btn so-slides" data-act="filme"
+                  title="Montar filme contínuo (melhor para a TV)">${SS_ICONS.filme}</button>
+          <button type="button" class="ss-btn so-filme" data-act="slides"
+                  title="Voltar ao modo slides">${SS_ICONS.slides}</button>
           <button type="button" class="ss-btn" data-act="download" title="Baixar o slideshow em vídeo">${SS_ICONS.down}</button>
           <button type="button" class="ss-btn" data-act="cast" title="Projetar na TV">${SS_ICONS.cast}</button>
           <span class="ss-sep"></span>
@@ -1034,6 +1132,12 @@ function ssStart(list, f, order) {
   const volume = overlay.querySelector('.ss-vol');
   volume.value = Math.round(ssAudio.volume * 100);
   volume.addEventListener('input', function () {
+    if (ssFilmeAtivo()) {
+      ss.filme.video.volume = this.value / 100;
+      ss.filme.video.muted = false;
+      ssAtualizarBotaoSom();
+      return;
+    }
     ssAudio.volume = this.value / 100;
     ssAudio.mudo = false;
     ssAudioVolume();
@@ -1042,7 +1146,10 @@ function ssStart(list, f, order) {
   });
   // qualquer toque no palco serve de gesto para o navegador liberar o áudio
   overlay.addEventListener('pointerdown', ssAudioResumir);
+  overlay.addEventListener('click', ssAudioResumir);
   document.addEventListener('keydown', ssKeys);
+  document.addEventListener('visibilitychange', ssVisibilidade);
+  window.addEventListener('pageshow', ssVisibilidade);
 
   // iOS só libera o play de vídeo dentro de um gesto: destrava aqui, no clique
   // que abriu o slideshow, os elementos já criados.
@@ -1052,7 +1159,9 @@ function ssStart(list, f, order) {
     if (el.tagName !== 'VIDEO') return;
     el.muted = true;                       // o aquecimento é silencioso
     const p = el.play();
-    if (p && p.then) p.then(() => el.pause()).catch(() => { /* destrava no play seguinte */ });
+    // pausa de volta só o que não é o vídeo em cena — senão o aquecimento
+    // congela o vídeo que acabou de começar
+    if (p && p.then) p.then(() => { if (ss.media !== el) el.pause(); }).catch(() => { /* destrava no play seguinte */ });
   });
   ssAudioAcompanhar(ss.list[0]);
   ss.raf = requestAnimationFrame(ssFrame);
@@ -1065,8 +1174,12 @@ function ssClose() {
   cancelAnimationFrame(ss.raf);
   if (ss.rec && ss.rec.state !== 'inactive') { try { ss.rec.stop(); } catch (_) { /* já parado */ } }
   ss.rec = null;
+  ssEncerrarFilme();
+  ss.filme = null;              // o arquivo montado só vale enquanto o show está aberto
   ssReleaseMedia([]);
   document.removeEventListener('keydown', ssKeys);
+  document.removeEventListener('visibilitychange', ssVisibilidade);
+  window.removeEventListener('pageshow', ssVisibilidade);
   if (document.fullscreenElement || document.webkitFullscreenElement) ssExitFullscreen();
   if (ss.overlay) ss.overlay.remove();
   ss.overlay = null;
@@ -1085,6 +1198,9 @@ function ssKeys(e) {
 }
 
 function ssAction(act) {
+  if (ssFilmeAtivo() && ssAcaoFilme(act)) return;
+  if (act === 'filme') { ssMontarFilme(); return; }
+  if (act === 'slides') return;
   if (act === 'toggle') ssTogglePause();
   else if (act === 'next') ssGoTo(ss.idx + 1);
   else if (act === 'prev') ssGoTo(ss.idx - 1);
@@ -1103,12 +1219,26 @@ function ssAlternarSom() {
   ssAtualizarBotaoSom();
 }
 
+const ssFilmeAtivo = () => !!(ss.filme && ss.filme.ativo && ss.filme.video);
+
 // O navegador só libera som depois de um gesto. Quando o slideshow abre sozinho
 // (link com ?show=1), o botão fica marcado e o primeiro toque destrava.
 function ssAtualizarBotaoSom() {
   if (!ss.overlay) return;
   const btn = ss.overlay.querySelector('[data-act="som"]');
   if (!btn) return;
+  const vol0 = ss.overlay.querySelector('.ss-vol');
+  // No filme o som é o do próprio arquivo, não o da trilha ao vivo.
+  if (ssFilmeAtivo()) {
+    const v = ss.filme.video;
+    btn.hidden = false;
+    if (vol0) vol0.hidden = false;
+    btn.classList.remove('alerta');
+    const ic = v.muted ? 'mudo' : 'som';
+    if (btn.dataset.icone !== ic) { btn.innerHTML = SS_ICONS[ic]; btn.dataset.icone = ic; }
+    btn.title = v.muted ? 'Ativar o som do filme' : 'Silenciar o filme';
+    return;
+  }
   const semTrilha = ssAudio.modo === 'none' || !allTracks.length;
   btn.hidden = semTrilha;
   const vol = ss.overlay.querySelector('.ss-vol');
@@ -1145,26 +1275,68 @@ function ssAplicarTrilha(valor) {
   ssAudioSalvarPrefs();
 }
 
-function ssTogglePause() {
-  ss.paused = !ss.paused;
-  const btn = ss.overlay.querySelector('[data-act="toggle"]');
-  if (ss.paused) {
+// Ponto único de pausa: vale tanto para o botão quanto para a pausa que o
+// sistema impõe ao sair do app. Ao voltar, o áudio é reatado explicitamente —
+// só chamar play() no vídeo não devolve a trilha.
+function ssDefinirPausa(pausado) {
+  if (!ss.open || ss.paused === pausado) return;
+  ss.paused = pausado;
+  const btn = ss.overlay && ss.overlay.querySelector('[data-act="toggle"]');
+  if (pausado) {
     ss.pausedAt = ssNow();
     if (ss.media && ss.media.tagName === 'VIDEO') ss.media.pause();
     ssAudioPausar(true);
-    btn.innerHTML = SS_ICONS.play;
-    btn.title = 'Continuar';
+    if (btn) { btn.innerHTML = SS_ICONS.play; btn.title = 'Continuar'; }
   } else {
     ss.phaseStart += ssNow() - ss.pausedAt;
-    if (ss.media && ss.media.tagName === 'VIDEO') ss.media.play().catch(() => { /* segue pelo timeout */ });
+    ss.videoTravadoEm = 0;
     ssAudioPausar(false);
-    btn.innerHTML = SS_ICONS.pause;
-    btn.title = 'Pausar';
+    ssAudioResumir();                    // o contexto pode ter sido suspenso
+    if (ss.media && ss.media.tagName === 'VIDEO') ssTocarVideo(ss.media);
+    if (btn) { btn.innerHTML = SS_ICONS.pause; btn.title = 'Pausar'; }
   }
+  ssAtualizarBotaoSom();
+}
+
+function ssTogglePause() {
+  ss.autoPausado = false;   // pausa do usuário manda sobre a do sistema
+  ssDefinirPausa(!ss.paused);
+}
+
+// Sair do aplicativo (ou bloquear a tela) corta o vídeo e o áudio sem avisar o
+// show. Pausar na saída e retomar na volta mantém trilha, vídeo e cronômetro do
+// card no mesmo ponto, em vez de voltar com um vídeo mudo ou a trilha parada.
+function ssVisibilidade() {
+  if (!ss.open) return;
+  if (ssFilmeAtivo()) {
+    const v = ss.filme.video;
+    if (document.hidden) { ss.filme.retomar = !v.paused; v.pause(); }
+    else if (ss.filme.retomar) { ss.filme.retomar = false; v.play().catch(() => { /* precisa de toque */ }); }
+    return;
+  }
+  if (document.hidden) {
+    if (!ss.paused) { ss.autoPausado = true; ssDefinirPausa(true); }
+    return;
+  }
+  if (ss.autoPausado) {
+    ss.autoPausado = false;
+    ssDefinirPausa(false);
+  } else {
+    ssAudioResumir();
+  }
+  // Sem gesto do usuário o navegador pode recusar destravar o áudio: avisa uma vez.
+  setTimeout(() => {
+    if (!ss.open || ss.paused) return;
+    const temTrilha = ssAudio.modo !== 'none' && allTracks.length;
+    if (temTrilha && ssAudio.ctx && ssAudio.ctx.state === 'suspended') {
+      toast('Toque na tela para voltar com o som.');
+    }
+  }, 800);
 }
 
 function ssUpdateBar() {
   if (!ss.overlay) return;
+  if (ssFilmeAtivo()) { ssAtualizarBotaoSom(); ssAtualizarBarraFilme(); return; }
   const c = ss.list[ss.idx];
   ssAtualizarBotaoSom();
   ss.overlay.querySelector('.ss-meta').textContent =
@@ -1174,6 +1346,7 @@ function ssUpdateBar() {
 
 function ssUpdateProgress() {
   if (!ss.overlay) return;
+  if (ssFilmeAtivo()) { ssAtualizarBarraFilme(); return; }
   const frac = (ss.idx + (ss.phase === 'card' ? 0.25 : 0.75)) / ss.list.length;
   ss.overlay.querySelector('.ss-track span').style.width = `${(frac * 100).toFixed(1)}%`;
   if (ss.rec) {
@@ -1248,7 +1421,7 @@ function ssAskDownload() {
   });
 }
 
-function ssStartRecording(mime) {
+function ssStartRecording(mime, paraFilme = false) {
   const stream = ss.canvas.captureStream(30);
   // o vídeo vem do canvas e o áudio do AudioContext: juntos no mesmo arquivo
   if (ssAudio.dest) ssAudio.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
@@ -1265,13 +1438,20 @@ function ssStartRecording(mime) {
   ss.recMime = mime;
   ss.rec = rec;
   ss.recStart = ssNow();
+  ss.recParaFilme = paraFilme;
+  ss.recMarcas = [];
+  // fora da gravação o vídeo toca pela saída nativa; agora ele precisa entrar
+  // no grafo para o som dele ir junto no arquivo
+  ss.videos.forEach((el) => ssConectarVideo(el));
   rec.ondataavailable = (e) => { if (e.data && e.data.size) ss.chunks.push(e.data); };
   rec.onstop = () => ssSaveRecording();
   rec.start(1000);
   ss.overlay.querySelector('.ss-rec').hidden = false;
+  ss.overlay.querySelector('.ss-rec [data-act="stop-rec"]').textContent =
+    paraFilme ? 'Parar e montar' : 'Parar e salvar';
   if (ss.paused) ssTogglePause();
   ssGoTo(0);
-  toast('Gravando o slideshow…', 'success');
+  toast(paraFilme ? 'Montando o filme…' : 'Gravando o slideshow…', 'success');
 }
 
 function ssStopRecording() {
@@ -1282,12 +1462,25 @@ function ssStopRecording() {
 
 function ssSaveRecording() {
   const rec = ss.rec;
+  const paraFilme = ss.recParaFilme;
   ss.rec = null;
+  ss.recParaFilme = false;
+  ss.recDur = Math.max(0.1, (ssNow() - ss.recStart) / 1000);
   if (ss.overlay) ss.overlay.querySelector('.ss-rec').hidden = true;
-  if (!ss.chunks.length) { toast('A gravação saiu vazia.', 'error'); return; }
+  if (!ss.chunks.length) {
+    toast(paraFilme ? 'O filme saiu vazio.' : 'A gravação saiu vazia.', 'error');
+    ss.chunks = [];
+    return;
+  }
   const type = (rec && rec.mimeType) || ss.recMime || 'video/webm';
   const blob = new Blob(ss.chunks, { type });
   ss.chunks = [];
+  if (paraFilme) { ssExibirFilme(blob); return; }
+  ssBaixarBlob(blob);
+}
+
+function ssBaixarBlob(blob) {
+  const type = blob.type || 'video/webm';
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   const url = URL.createObjectURL(blob);
@@ -1299,6 +1492,225 @@ function ssSaveRecording() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   toast(`Vídeo pronto (${(blob.size / 1048576).toFixed(1)} MB).`, 'success');
+}
+
+// ---------------------------------------------------------------- modo filme
+/*
+   No modo slides o palco é um canvas redesenhado quadro a quadro e cada
+   personagem com vídeo é um <video> diferente entrando em cena. Na TV isso
+   aparece como troca de mídia: o receptor mostra os controles de reprodução a
+   cada personagem e a exibição fica picotada.
+
+   O modo filme resolve na raiz: o show inteiro é montado uma vez só num único
+   arquivo (imagem do canvas + trilha + som dos vídeos, via MediaRecorder) e o
+   que toca depois é esse arquivo — uma mídia só, do começo ao fim. A montagem é
+   em tempo real, então ela roda com barra de progresso, sem travar a tela.
+*/
+
+function ssMontarFilme() {
+  if (ss.rec) { toast('A montagem já está em andamento.', 'error'); return; }
+  const mime = ssPickMime();
+  if (!mime || !ss.canvas.captureStream) {
+    toast('Este navegador não permite montar o filme.', 'error');
+    return;
+  }
+
+  // Filme já montado nesta sessão: não precisa gravar tudo de novo.
+  if (ss.filme && ss.filme.blob) {
+    const ov = openModal(`
+      <h3><span class="rune">&#x16D2;</span> Filme já montado</h3>
+      <p style="color:var(--ink-2);line-height:1.6">
+        Existe um filme montado nesta sessão (${(ss.filme.blob.size / 1048576).toFixed(1)} MB).
+        Exibir de novo é imediato; montar outra vez leva o tempo do show inteiro.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="button" class="btn" data-novo>Montar de novo</button>
+        <button type="button" class="btn primary" data-exibir>Exibir o filme</button>
+      </div>`);
+    ov.querySelector('[data-close]').addEventListener('click', () => closeModal(ov));
+    ov.querySelector('[data-exibir]').addEventListener('click', () => {
+      closeModal(ov);
+      ssExibirFilme(ss.filme.blob, ss.filme.marcas, ss.filme.dur);
+    });
+    ov.querySelector('[data-novo]').addEventListener('click', () => {
+      closeModal(ov);
+      ssEncerrarFilme();
+      ssStartRecording(mime, true);
+    });
+    return;
+  }
+
+  const withVideo = ss.list.filter((c) => c.demo_video).length;
+  const estimate = Math.round((ss.list.length * (ssCardMs / 1000) + withVideo * 8) / 60);
+  const overlay = openModal(`
+    <h3><span class="rune">&#x16D2;</span> Montar filme contínuo</h3>
+    <p style="color:var(--ink-2);line-height:1.6">
+      O show inteiro vira <b>um arquivo de vídeo só</b>, com a trilha e o som dos vídeos
+      já dentro. Depois ele toca do começo ao fim como um filme — é o modo indicado para
+      projetar na TV, porque o receptor não mostra os controles a cada personagem.
+      <br><br>
+      A montagem é feita em tempo real (~${estimate || 1} min) e você acompanha pela barra
+      de progresso. Mantenha esta aba visível até o fim — em segundo plano o navegador
+      congela a montagem.
+    </p>
+    <div class="modal-actions">
+      <button type="button" class="btn" data-close>Cancelar</button>
+      <button type="button" class="btn primary" data-go>Montar agora</button>
+    </div>`);
+  overlay.querySelector('[data-close]').addEventListener('click', () => closeModal(overlay));
+  overlay.querySelector('[data-go]').addEventListener('click', () => {
+    closeModal(overlay);
+    ssStartRecording(mime, true);
+  });
+}
+
+function ssExibirFilme(blob, marcas, dur) {
+  if (!ss.open || !ss.overlay) return;
+  const url = URL.createObjectURL(blob);
+  ss.filme = {
+    ativo: true, blob, url, video: null, retomar: false,
+    marcas: (marcas || ss.recMarcas).slice(),
+    dur: dur || ss.recDur || 0,
+  };
+
+  // o motor de slides para: quem manda agora é o arquivo
+  cancelAnimationFrame(ss.raf);
+  ss.raf = 0;
+  if (ss.media && ss.media.tagName === 'VIDEO') ss.media.pause();
+  ssAudioPausar(true);          // a trilha já está dentro do filme
+  ssAudioDuck(false);
+
+  const v = document.createElement('video');
+  v.className = 'ss-filme';
+  v.playsInline = true;
+  v.setAttribute('playsinline', '');
+  v.setAttribute('webkit-playsinline', '');
+  v.setAttribute('x-webkit-airplay', 'allow');   // AirPlay direto deste arquivo
+  v.preload = 'auto';
+  v.loop = true;
+  v.volume = ssAudio.volume;
+  v.src = url;
+  v.addEventListener('loadedmetadata', () => {
+    if (isFinite(v.duration) && v.duration > 0) ss.filme.dur = v.duration;
+    ssAtualizarBarraFilme();
+  });
+  v.addEventListener('timeupdate', ssAtualizarBarraFilme);
+  v.addEventListener('play', ssBotaoPlayFilme);
+  v.addEventListener('pause', ssBotaoPlayFilme);
+
+  ss.overlay.classList.add('ss-modo-filme');
+  ss.canvas.hidden = true;
+  ss.overlay.querySelector('.ss-stage').appendChild(v);
+  ss.filme.video = v;
+  ss.paused = false;
+  v.play().catch(() => { /* liberado no primeiro toque */ });
+
+  const vol = ss.overlay.querySelector('.ss-vol');
+  if (vol) vol.value = Math.round(v.volume * 100);
+  ssBotaoPlayFilme();
+  ssAtualizarBotaoSom();
+  ssAtualizarBarraFilme();
+  toast('Filme pronto — agora é um arquivo só, sem cortes entre os personagens.', 'success');
+}
+
+function ssBotaoPlayFilme() {
+  if (!ssFilmeAtivo() || !ss.overlay) return;
+  const btn = ss.overlay.querySelector('[data-act="toggle"]');
+  if (!btn) return;
+  const tocando = !ss.filme.video.paused;
+  btn.innerHTML = tocando ? SS_ICONS.pause : SS_ICONS.play;
+  btn.title = tocando ? 'Pausar' : 'Continuar';
+}
+
+// Em que capítulo (personagem) o filme está agora.
+function ssCapituloAtual() {
+  const { marcas, video } = ss.filme;
+  if (!marcas.length) return -1;
+  const t = video.currentTime || 0;
+  let k = 0;
+  for (let j = 0; j < marcas.length; j += 1) { if (marcas[j].t <= t + 0.15) k = j; }
+  return k;
+}
+
+function ssPularCapitulo(dir) {
+  const { marcas, video } = ss.filme;
+  if (!marcas.length) {
+    video.currentTime = Math.max(0, (video.currentTime || 0) + dir * 10);
+    return;
+  }
+  const k = ssCapituloAtual();
+  // voltar no meio de um capítulo recomeça o capítulo, como num tocador comum
+  const alvo = (dir < 0 && (video.currentTime - marcas[k].t) > 2) ? k : k + dir;
+  const j = Math.min(marcas.length - 1, Math.max(0, alvo));
+  try { video.currentTime = marcas[j].t + 0.05; } catch (_) { /* arquivo sem busca */ }
+  ssAtualizarBarraFilme();
+}
+
+function ssAtualizarBarraFilme() {
+  if (!ssFilmeAtivo() || !ss.overlay) return;
+  const { video, marcas } = ss.filme;
+  const dur = (isFinite(video.duration) && video.duration > 0) ? video.duration : ss.filme.dur;
+  const frac = dur ? Math.min(1, (video.currentTime || 0) / dur) : 0;
+  ss.overlay.querySelector('.ss-track span').style.width = `${(frac * 100).toFixed(1)}%`;
+  const k = ssCapituloAtual();
+  const c = k >= 0 ? ss.list[marcas[k].i] : null;
+  ss.overlay.querySelector('.ss-meta').textContent = c
+    ? `Filme · ${k + 1}/${marcas.length} · ${c.name}`
+    : `Filme · ${ss.list.length} personagens`;
+}
+
+// Ações da barra enquanto o filme está no ar. Devolve true quando tratou.
+function ssAcaoFilme(act) {
+  const v = ss.filme.video;
+  if (act === 'toggle') {
+    if (v.paused) v.play().catch(() => { /* precisa de um toque */ });
+    else v.pause();
+    return true;
+  }
+  if (act === 'next') { ssPularCapitulo(1); return true; }
+  if (act === 'prev') { ssPularCapitulo(-1); return true; }
+  if (act === 'som') { v.muted = !v.muted; ssAtualizarBotaoSom(); return true; }
+  if (act === 'download') { ssBaixarBlob(ss.filme.blob); return true; }
+  if (act === 'cast') { ssOpenCastModal(); return true; }
+  if (act === 'filme') { toast('O filme já está tocando.'); return true; }
+  if (act === 'slides') { ssSairDoFilme(); return true; }
+  return false;   // tela cheia e fechar seguem o caminho normal
+}
+
+// Volta ao modo slides, no personagem em que o filme estava.
+function ssSairDoFilme() {
+  if (!ssFilmeAtivo()) return;
+  const k = ssCapituloAtual();
+  const destino = k >= 0 ? ss.filme.marcas[k].i : ss.idx;
+  ssEncerrarFilme();
+  ss.canvas.hidden = false;
+  ss.paused = false;
+  ssAudioResumir();
+  ssGoTo(destino);
+  ssBotaoPlayFilme();
+  if (!ss.raf) ss.raf = requestAnimationFrame(ssFrame);
+  const btn = ss.overlay.querySelector('[data-act="toggle"]');
+  if (btn) { btn.innerHTML = SS_ICONS.pause; btn.title = 'Pausar'; }
+  ssAtualizarBotaoSom();
+}
+
+// Tira o filme da tela. O blob fica guardado para poder ser reexibido sem
+// montar tudo de novo; só a URL temporária é liberada.
+function ssEncerrarFilme() {
+  if (!ss.filme) return;
+  const { video, url } = ss.filme;
+  if (video) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.remove();
+  }
+  if (url) URL.revokeObjectURL(url);
+  ss.filme.ativo = false;
+  ss.filme.video = null;
+  ss.filme.url = '';
+  if (ss.overlay) ss.overlay.classList.remove('ss-modo-filme');
 }
 
 // ---------------------------------------------------------------- projeção na TV
@@ -1314,6 +1726,19 @@ function ssShareUrl() {
 }
 
 async function ssTryCast() {
+  // Com o filme no ar, o que vai para a TV é o próprio arquivo: uma mídia só,
+  // sem o receptor mostrar os controles a cada personagem.
+  if (ssFilmeAtivo()) {
+    const f = ss.filme.video;
+    if (typeof f.webkitShowPlaybackTargetPicker === 'function') {
+      f.webkitShowPlaybackTargetPicker();
+      return true;
+    }
+    if (f.remote && typeof f.remote.prompt === 'function') {
+      await f.remote.prompt();
+      return true;
+    }
+  }
   // O palco é um canvas: vira MediaStream para poder ser enviado ao receptor.
   const v = document.createElement('video');
   v.muted = true;
@@ -1340,6 +1765,11 @@ function ssOpenCastModal() {
   const overlay = openModal(`
     <h3><span class="rune">&#x16B1;</span> Projetar na TV</h3>
     <p style="color:var(--ink-2);line-height:1.6;margin-bottom:12px">
+      Para assistir na TV, o <b>modo filme</b> é o que dá a exibição mais fluida: o show
+      é montado num arquivo de vídeo só, então a TV não mostra os controles de
+      reprodução a cada troca de personagem, como acontece no modo slides.
+    </p>
+    <p style="color:var(--ink-2);line-height:1.6;margin-bottom:12px">
       No iPhone/iPad o caminho mais confiável é o <b>espelhamento de tela</b>:
       abra a Central de Controle (deslize da borda superior direita para baixo),
       toque em <b>Espelhamento de Tela</b>, escolha a TV/Apple TV e volte para cá —
@@ -1347,6 +1777,7 @@ function ssOpenCastModal() {
       em modo paisagem antes de espelhar.
     </p>
     <div class="ss-cast-actions">
+      <button type="button" class="btn primary" data-act="filme">&#127909; Montar filme contínuo</button>
       <button type="button" class="btn" data-act="airplay">Procurar dispositivo (AirPlay/Cast)</button>
       <button type="button" class="btn" data-act="copy">Copiar link do slideshow</button>
       <button type="button" class="btn" data-act="full">Entrar em tela cheia</button>
@@ -1360,6 +1791,10 @@ function ssOpenCastModal() {
     </div>`);
 
   overlay.querySelector('[data-close]').addEventListener('click', () => closeModal(overlay));
+  overlay.querySelector('[data-act="filme"]').addEventListener('click', () => {
+    closeModal(overlay);
+    ssMontarFilme();
+  });
   overlay.querySelector('[data-act="full"]').addEventListener('click', () => {
     closeModal(overlay);
     ssToggleFullscreen();

@@ -341,10 +341,14 @@ def page_archive():
 # ---------------------------------------------------------------- trilha sonora
 
 TRACK_SETTINGS_DEFAULTS = {
-    "duck": 0.15,        # volume da trilha enquanto o vídeo do personagem toca
-    "video_sound": 1,    # os vídeos tocam com o som próprio deles
-    "volume": 0.7,       # volume inicial da trilha
+    "duck": 0.15,         # volume da trilha enquanto o vídeo do personagem toca
+    "video_sound": 1,     # os vídeos tocam com o som próprio deles
+    "volume": 0.7,        # volume inicial da trilha
+    "card_seconds": 4.0,  # tempo do card parado, antes do vídeo
 }
+
+# Ajustes que não são volume (0 a 1) têm faixa própria.
+TRACK_SETTINGS_RANGE = {"card_seconds": (1.0, 20.0)}
 
 
 def read_track_settings(conn):
@@ -378,8 +382,9 @@ def api_track_settings_save():
         if chave == "video_sound":
             valor = 1 if data[chave] else 0
         else:
+            minimo, maximo = TRACK_SETTINGS_RANGE.get(chave, (0.0, 1.0))
             try:
-                valor = min(1.0, max(0.0, float(data[chave])))
+                valor = min(maximo, max(minimo, float(data[chave])))
             except (TypeError, ValueError):
                 continue
         conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "

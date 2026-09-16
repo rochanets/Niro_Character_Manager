@@ -379,7 +379,7 @@ if (abaInicial) {
    ================================================================ */
 
 let tracks = [];
-let trackSettings = { duck: 0.15, video_sound: 1, volume: 0.7 };
+let trackSettings = { duck: 0.15, video_sound: 1, volume: 0.7, card_seconds: 4 };
 let trashOpen = false;
 
 const SCOPE_LABEL = { element: 'Elemento', region: 'Região', geral: 'Geral' };
@@ -397,6 +397,7 @@ async function renderTracks() {
 function pintarCaixaTrilhas() {
   const duck = Math.round(trackSettings.duck * 100);
   const vol = Math.round(trackSettings.volume * 100);
+  trackSettings.card_seconds = trackSettings.card_seconds || 4;
   document.getElementById('param-add').innerHTML = `
     <div class="drop-zone" id="drop-zone">
       <div class="dz-icon">&#x266B;</div>
@@ -412,6 +413,14 @@ function pintarCaixaTrilhas() {
     <div id="upload-label" class="ii-note" style="display:none;text-align:right"></div>
 
     <div class="settings-grid">
+      <label class="set-item">
+        <span class="set-label">Tempo do card parado, antes do vídeo</span>
+        <span class="set-control">
+          <input type="range" id="set-card" min="1" max="15" step="0.5" value="${trackSettings.card_seconds}">
+          <output id="set-card-val">${trackSettings.card_seconds}s</output>
+        </span>
+        <span class="set-hint">Quanto tempo a arte do personagem fica na tela antes de entrar o vídeo.</span>
+      </label>
       <label class="set-item">
         <span class="set-label">Som dos vídeos dos personagens</span>
         <span class="set-control">
@@ -585,6 +594,14 @@ function ligarAjustesTrilhas() {
     slider.addEventListener('change', function () {
       salvarAjustesTrilha({ [campo]: this.value / 100 });
     });
+  });
+
+  const tempo = document.getElementById('set-card');
+  tempo.addEventListener('input', function () {
+    document.getElementById('set-card-val').textContent = `${this.value}s`;
+  });
+  tempo.addEventListener('change', function () {
+    salvarAjustesTrilha({ card_seconds: Number(this.value) });
   });
 }
 

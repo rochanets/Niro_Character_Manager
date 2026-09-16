@@ -241,7 +241,7 @@ load().catch((e) => toast(e.message, 'error'));
    assistir, gravar (download) e projetar.
    ================================================================ */
 
-const SS_CARD_MS = 2000;          // tempo do card, com o zoom in
+let ssCardMs = 4000;              // tempo do card; vem dos ajustes da aba Trilhas
 const SS_FADE_MS = 380;           // crossfade do card para o vídeo
 const SS_GIF_MS = 5000;           // "vídeo" em gif não tem fim: tempo fixo
 const SS_VIDEO_TIMEOUT_MS = 8000; // vídeo que não começa não trava o slideshow
@@ -306,8 +306,9 @@ function openSlideshowModal() {
   const overlay = openModal(`
     <h3><span class="rune">&#x16DE;</span> Slideshow de personagens</h3>
     <p class="page-sub" style="margin-bottom:14px">
-      Cada personagem aparece 2s no card, com um leve zoom, e em seguida toca o vídeo
-      cadastrado (quando houver). No fim do vídeo passa sozinho para o próximo.
+      Cada personagem aparece ${(ssCardMs / 1000).toString().replace('.', ',')}s no card,
+      com um leve zoom, e em seguida toca o vídeo cadastrado (quando houver). No fim do
+      vídeo passa sozinho para o próximo. O tempo do card fica em Parâmetros &rarr; Trilhas.
     </p>
     <div class="ss-filters">
       ${selects}
@@ -399,6 +400,7 @@ async function ssCarregarAjustes() {
     const cfg = await api('/api/tracks/settings');
     ssAudio.duckNivel = cfg.duck;
     ssAudio.somVideo = !!cfg.video_sound;
+    if (cfg.card_seconds) ssCardMs = cfg.card_seconds * 1000;
     if (!ssAudio.volumeLocal) ssAudio.volume = cfg.volume;
   } catch (_) { /* mantém os padrões */ }
 }
@@ -755,21 +757,33 @@ function ssBackdrop(img) {
   ctx.restore();
 }
 
-function ssCardBox() {
+// A caixa do card assume a proporção da própria arte: assim a imagem aparece
+// inteira, sem corte, em vez de ser recortada num 3:4 fixo. Nome e estrelas ficam
+// numa faixa logo abaixo, fora da arte, para não cobrirem nada dela.
+function ssCardBox(img, zoom = 1) {
   const cv = ss.canvas;
-  let h = cv.height * 0.86;
-  let w = h * 0.75;                       // mesmo 3:4 do card da galeria
-  if (w > cv.width * 0.88) { w = cv.width * 0.88; h = w / 0.75; }
-  return { x: (cv.width - w) / 2, y: (cv.height - h) / 2, w, h };
+  const proporcao = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : 0.75;
+  const legenda = cv.height * 0.085;
+  const respiro = cv.height * 0.022;
+  const alturaLivre = cv.height * 0.94 - legenda - respiro;
+  let h = alturaLivre;
+  let w = h * proporcao;
+  if (w > cv.width * 0.88) { w = cv.width * 0.88; h = w / proporcao; }
+  w *= zoom;
+  h *= zoom;
+  const total = h + respiro + legenda;
+  return { x: (cv.width - w) / 2, y: (cv.height - total) / 2, w, h, legenda, respiro };
 }
 
 function ssDrawCard(c, t, alpha) {
   const { ctx } = ss;
-  const { x, y, w, h } = ssCardBox();
-  const ease = 1 - Math.pow(1 - t, 3);
-  const zoom = 1 + 0.08 * ease;           // zoom in leve: dá movimento ao card
-  const radius = Math.min(w, h) * 0.05;
   const img = ssLoaded(ssCardUrl(c));
+  const ease = 1 - Math.pow(1 - t, 3);
+  // O zoom cresce o card inteiro, e não a arte dentro dele: o movimento continua
+  // existindo sem que as bordas da imagem sejam comidas.
+  const zoom = 1 + 0.06 * ease;
+  const { x, y, w, h, legenda, respiro } = ssCardBox(img, zoom);
+  const radius = Math.min(w, h) * 0.05;
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -786,24 +800,10 @@ function ssDrawCard(c, t, alpha) {
   ssRoundRect(ctx, x, y, w, h, radius);
   ctx.clip();
   if (img) {
-    const zw = w * zoom, zh = h * zoom;
-    const f = ssCover(img.naturalWidth, img.naturalHeight, zw, zh);
-    ctx.drawImage(img, x + (w - zw) / 2 + f.x, y + (h - zh) / 2 + f.y, f.w, f.h);
+    // a caixa já tem a proporção da arte, então ela entra inteira e encaixada
+    const f = ssContain(img.naturalWidth, img.naturalHeight, w, h);
+    ctx.drawImage(img, x + f.x, y + f.y, f.w, f.h);
   }
-
-  // faixa inferior com nome e estrelas, como no card da galeria
-  const barH = h * 0.105;
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(x, y + h - barH, w, barH);
-  ctx.textBaseline = 'middle';
-  ctx.font = `600 ${barH * 0.4}px ${SS_FONT}`;
-  ctx.fillStyle = '#f2f3fa';
-  ctx.textAlign = 'left';
-  ctx.fillText(c.name, x + w * 0.05, y + h - barH / 2, w * 0.6);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = c.rarity === 5 ? '#e0b45c' : '#9085e9';
-  ctx.font = `${barH * 0.33}px ${SS_FONT}`;
-  ctx.fillText('★'.repeat(c.rarity || 0), x + w - w * 0.05, y + h - barH / 2);
 
   // ícone do elemento no canto superior esquerdo
   const elImg = ssLoaded(thumbUrl(c.element.image, 128));
@@ -826,6 +826,20 @@ function ssDrawCard(c, t, alpha) {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = Math.max(1, w * 0.003);
   ctx.stroke();
+
+  // nome e estrelas abaixo da arte, nunca por cima dela
+  const meio = y + h + respiro + legenda / 2;
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = legenda * 0.25;
+  ctx.font = `600 ${legenda * 0.46}px ${SS_FONT}`;
+  ctx.fillStyle = '#f2f3fa';
+  ctx.textAlign = 'left';
+  ctx.fillText(c.name, x, meio, w * 0.65);
+  ctx.font = `${legenda * 0.38}px ${SS_FONT}`;
+  ctx.fillStyle = c.rarity === 5 ? '#e0b45c' : '#9085e9';
+  ctx.textAlign = 'right';
+  ctx.fillText('★'.repeat(c.rarity || 0), x + w, meio);
   ctx.restore();
 }
 
@@ -922,7 +936,7 @@ function ssFrame() {
   const cardImg = ssLoaded(ssCardUrl(c));
 
   if (ss.phase === 'card') {
-    const t = Math.min(1, elapsed / SS_CARD_MS);
+    const t = Math.min(1, elapsed / ssCardMs);
     ssBackdrop(cardImg);
     ssDrawCard(c, t, 1);
     if (!ss.paused && t >= 1) ssStartMedia();
